@@ -107,11 +107,16 @@ p, li { color: var(--gray-100) !important; font-size: 16px !important; line-heig
   background: var(--gray-100);
   padding: 0 40px;
   height: 48px;
+  width: 100%;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  position: sticky; top: 0; z-index: 999;
+  position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
+  margin-top: 0 !important;
 }
+/* Push content below fixed nav */
+.ibm-nav-spacer { height: 48px; }
 /* Left side: brand + page links grouped together */
 .ibm-nav-left {
   display: flex; align-items: center; gap: 0;
@@ -147,6 +152,22 @@ p, li { color: var(--gray-100) !important; font-size: 16px !important; line-heig
   font-size: 11px; color: #8d8d8d; padding: 0 10px 0 4px;
   font-family: 'IBM Plex Sans', sans-serif; white-space: nowrap;
   letter-spacing: 0.02em;
+}
+
+/* ── Nav responsive — small MacBook (≤ 1280px) ──────────────────────────── */
+@media (max-width: 1280px) {
+  .ibm-nav { padding: 0 16px; }
+  .ibm-nav-link { font-size: 13px; padding: 0 10px; }
+  .ibm-nav-doc-label { display: none; }
+  .ibm-nav-doc-group { margin-left: 4px; padding-left: 4px; }
+}
+@media (max-width: 1024px) {
+  .ibm-nav { padding: 0 12px; height: auto; min-height: 48px; flex-wrap: wrap; }
+  .ibm-nav-left { flex-wrap: wrap; }
+  .ibm-nav-links { flex-wrap: wrap; }
+  .ibm-nav-link { font-size: 12px; padding: 0 8px; height: 40px; }
+  .ibm-nav-brand { font-size: 13px; }
+  .ibm-nav-doc-group { display: none; }
 }
 
 /* ── Hero band ──────────────────────────────────────────────────────────── */
@@ -1225,7 +1246,8 @@ st.markdown(
     f'    {_tools_links}'
     f'    {_doc_links}'
     f'  </div>'
-    f'</div>',
+    f'</div>'
+    f'<div class="ibm-nav-spacer"></div>',
     unsafe_allow_html=True,
 )
 
@@ -1933,43 +1955,41 @@ with main:
         _curr_pd3 = _proj_pd3.get("currency", "EUR") if loaded else "EUR"
 
         # ── Callback helpers ─────────────────────────────────────────────────
-        def _bp_from_disc(disc):
-            """BP = (lp × (1-d) + ship) × n"""
+        def _eu_from_disc(disc):
+            """EU price = (lp × (1-d) + ship) × n   [discount applied directly to list → EU]"""
             if _lp_pd3 <= 0:
                 return 0.0
             return round((_lp_pd3 * (1 - disc / 100) + _ship_pd3) * _nsys_pd3, 0)
 
-        def _disc_from_mep(mep):
-            """disc = (1 - (mep/n - ship) / lp) × 100"""
+        def _disc_from_eu(eu):
+            """disc = (1 - (eu/n - ship) / lp) × 100"""
             if _lp_pd3 <= 0 or _nsys_pd3 <= 0:
                 return st.session_state["discount_pct"]
-            d = (1.0 - (mep / _nsys_pd3 - _ship_pd3) / _lp_pd3) * 100.0
+            d = (1.0 - (eu / _nsys_pd3 - _ship_pd3) / _lp_pd3) * 100.0
             return round(max(5.0, min(95.0, d)), 1)
 
         def _on_disc_change():
-            d = float(st.session_state["disc_num"])
-            m = float(st.session_state.get("eu_margin_pct", 0.0))
+            d   = float(st.session_state["disc_num"])
+            m   = float(st.session_state.get("eu_margin_pct", 0.0))
             st.session_state["discount_pct"] = d
-            new_mep = round(_bp_from_disc(d) * (1 + m / 100), 0)
+            # MEP = EU price = list × (1-d) + ship
+            new_mep = _eu_from_disc(d)
             st.session_state["mep_input"]      = new_mep
             st.session_state["mep_text_input"] = f"{int(new_mep):,}".replace(",", " ")
 
         def _on_mep_change():
             mep = float(st.session_state["mep_input"])
-            m   = float(st.session_state.get("eu_margin_pct", 0.0))
-            # MEP = End User Price = BP * (1 + margin%)  →  BP = MEP / (1 + margin%)
-            bp  = mep / (1 + m / 100) if m > 0 else mep
-            d   = _disc_from_mep(bp)
+            # MEP IS the EU price — derive discount from it directly
+            d   = _disc_from_eu(mep)
             st.session_state["discount_pct"] = d
             st.session_state["disc_num"]     = d
-            # store clean numeric mep
             st.session_state["mep_input"]    = mep
 
         # ── Init / first-load ────────────────────────────────────────────────
         if "disc_num" not in st.session_state:
             st.session_state["disc_num"] = float(st.session_state["discount_pct"])
-        # Init MEP: set from current discount whenever project just loaded or MEP not yet set
-        _mep_from_disc = _bp_from_disc(st.session_state["discount_pct"])
+        # Init MEP = EU price from current discount
+        _mep_from_disc = _eu_from_disc(st.session_state["discount_pct"])
         if "mep_input" not in st.session_state or (loaded and _mep_from_disc > 0 and st.session_state.get("mep_input", 0) == 0):
             st.session_state["mep_input"] = _mep_from_disc
             st.session_state["mep_text_input"] = f"{int(_mep_from_disc):,}".replace(",", " ")
@@ -2008,65 +2028,66 @@ with main:
             placeholder="0",
         )
 
-        _ns_col, _disc_col, _em_col = st.columns(3, gap="small")
-        with _ns_col:
-            if "num_systems_input" not in st.session_state:
-                st.session_state["num_systems_input"] = int(st.session_state["num_systems"])
+    # ── Systems / Discount / EU Margin — full-width row below Step 2 ─────────
+    _ns_col, _disc_col, _em_col, _pad_col = st.columns([1, 1, 1, 3], gap="small")
+    with _ns_col:
+        if "num_systems_input" not in st.session_state:
+            st.session_state["num_systems_input"] = int(st.session_state["num_systems"])
 
-            def _on_systems_change():
-                n = int(st.session_state["num_systems_input"])
-                st.session_state["num_systems"] = n
-                d = float(st.session_state["discount_pct"])
-                m = float(st.session_state.get("eu_margin_pct", 0.0))
-                bp = (_lp_pd3 * (1 - d / 100) + _ship_pd3) * n
-                new_mep = round(bp * (1 + m / 100), 0)
-                st.session_state["mep_input"]      = new_mep
-                st.session_state["mep_text_input"] = f"{int(new_mep):,}".replace(",", " ")
+        def _on_systems_change():
+            n = int(st.session_state["num_systems_input"])
+            st.session_state["num_systems"] = n
+            _proj_s  = st.session_state.get("project_data") or {}
+            _lp_s    = (_proj_s.get("list_price_hw", 0)
+                      + _proj_s.get("list_price_sw", 0)
+                      + _proj_s.get("list_price_support", 0))
+            _ship_s  = _proj_s.get("shipping", 0)
+            d = float(st.session_state["discount_pct"])
+            new_mep = round((_lp_s * (1 - d / 100) + _ship_s) * n, 0)
+            st.session_state["mep_input"]      = new_mep
+            st.session_state["mep_text_input"] = f"{int(new_mep):,}".replace(",", " ")
 
-            st.number_input(
-                "Systems",
-                min_value=1, max_value=99,
-                step=1,
-                disabled=not loaded,
-                help="Multiplies total price. When > 1, a note is added to the Exec Summary.",
-                key="num_systems_input",
-                on_change=_on_systems_change,
-            )
-            st.session_state["num_systems"] = st.session_state["num_systems_input"]
-        with _disc_col:
-            st.number_input(
-                "Discount (%)",
-                min_value=5.0, max_value=95.0,
-                step=0.5,
-                format="%.1f",
-                disabled=not loaded,
-                key="disc_num",
-                on_change=_on_disc_change,
-            )
-        with _em_col:
-            if "eu_margin_pct_input" not in st.session_state:
-                st.session_state["eu_margin_pct_input"] = float(st.session_state["eu_margin_pct"])
+        st.number_input(
+            "Systems",
+            min_value=1, max_value=99,
+            step=1,
+            disabled=not loaded,
+            help="Multiplies total price. When > 1, a note is added to the Exec Summary.",
+            key="num_systems_input",
+            on_change=_on_systems_change,
+        )
+        st.session_state["num_systems"] = st.session_state["num_systems_input"]
+    with _disc_col:
+        st.number_input(
+            "Discount (%)",
+            min_value=5.0, max_value=95.0,
+            step=0.5,
+            format="%.1f",
+            disabled=not loaded,
+            key="disc_num",
+            on_change=_on_disc_change,
+        )
+    with _em_col:
+        if "eu_margin_pct_input" not in st.session_state:
+            st.session_state["eu_margin_pct_input"] = float(st.session_state["eu_margin_pct"])
 
-            def _on_margin_change():
-                m = float(st.session_state["eu_margin_pct_input"])
-                st.session_state["eu_margin_pct"] = m
-                # Recompute MEP = BP * (1 + margin/100)
-                bp = _bp_from_disc(float(st.session_state["discount_pct"]))
-                new_mep = round(bp * (1 + m / 100), 0)
-                st.session_state["mep_input"]      = new_mep
-                st.session_state["mep_text_input"] = f"{int(new_mep):,}".replace(",", " ")
+        def _on_margin_change():
+            m = float(st.session_state["eu_margin_pct_input"])
+            st.session_state["eu_margin_pct"] = m
+            # EU price = list*(1-d)+ship stays fixed when margin changes;
+            # margin only affects how BP is split from EU — no need to update MEP
 
-            st.number_input(
-                "EU Margin (%)",
-                min_value=0.0, max_value=100.0,
-                step=0.5,
-                format="%.1f",
-                disabled=not loaded,
-                help="Margin added on top of BP price to calculate End User Price.",
-                key="eu_margin_pct_input",
-                on_change=_on_margin_change,
-            )
-            st.session_state["eu_margin_pct"] = st.session_state["eu_margin_pct_input"]
+        st.number_input(
+            "EU Margin (%)",
+            min_value=0.0, max_value=100.0,
+            step=0.5,
+            format="%.1f",
+            disabled=not loaded,
+            help="Partner margin deducted from EU price to get BP price.",
+            key="eu_margin_pct_input",
+            on_change=_on_margin_change,
+        )
+        st.session_state["eu_margin_pct"] = st.session_state["eu_margin_pct_input"]
 
     # =========================================================================
     # STEP 3 — only shown after parsing
@@ -2134,8 +2155,11 @@ with main:
                  + project.get("list_price_sw",0)
                  + project.get("list_price_support",0))
     _shipping   = project.get("shipping", 0)
-    _bp         = (lp * (1 - discount_pct / 100) + _shipping) * _num_sys
-    _eu         = float(st.session_state.get("mep_input") or _bp)
+    # EU price = list × (1 - discount%) + shipping  [discount applied to list → EU directly]
+    _eu         = float(st.session_state.get("mep_input") or
+                        (lp * (1 - discount_pct / 100) + _shipping) * _num_sys)
+    # BP = EU × (1 - margin%)
+    _bp         = _eu * (1 - _eu_margin / 100) if _eu_margin > 0 else _eu
     _curr       = project.get("currency", "EUR")
     _sup_info    = project.get("support_info") or {}
     _sup_name    = _sup_info.get("name", "—")
@@ -2558,12 +2582,18 @@ with main:
             curr      = project.get("currency", "EUR")
             n_sys     = int(st.session_state.get("num_systems", 1))
             eu_margin = float(st.session_state.get("eu_margin_pct", 15.0))
-            bp_hw     = list_hw*(1-d) * n_sys
-            bp_sw     = list_sw*(1-d) * n_sys
-            bp_sup    = list_sup*(1-d) * n_sys
-            bp_ship   = ship * n_sys
+            m         = 1 - eu_margin / 100
+            # EU = list × (1-d), BP = EU × (1-margin)
+            eu_hw     = list_hw*(1-d) * n_sys
+            eu_sw     = list_sw*(1-d) * n_sys
+            eu_sup    = list_sup*(1-d) * n_sys
+            eu_ship   = ship * n_sys
+            eu_tot    = eu_hw + eu_sw + eu_sup + eu_ship
+            bp_hw     = eu_hw  * m
+            bp_sw     = eu_sw  * m
+            bp_sup    = eu_sup * m
+            bp_ship   = eu_ship * m
             bp_tot    = bp_hw + bp_sw + bp_sup + bp_ship
-            eu_tot    = bp_tot * (1 + eu_margin / 100)
             list_tot  = (list_hw+list_sw+list_sup+ship) * n_sys
 
             st.dataframe({
@@ -2572,12 +2602,13 @@ with main:
                     f"{list_hw*n_sys:,.2f}", f"{list_sup*n_sys:,.2f}", f"{list_sw*n_sys:,.2f}",
                     f"{ship*n_sys:,.2f}", f"{list_tot:,.2f}",
                 ],
-                f"BP @ {discount_pct:.0f}% ({curr})": [
+                f"EU Price @ {discount_pct:.0f}% ({curr})": [
+                    f"{eu_hw:,.2f}", f"{eu_sup:,.2f}",
+                    f"{eu_sw:,.2f}", f"{eu_ship:,.2f}", f"{eu_tot:,.2f}",
+                ],
+                f"BP Price (EU×{1-eu_margin/100:.2f}) ({curr})": [
                     f"{bp_hw:,.2f}", f"{bp_sup:,.2f}",
                     f"{bp_sw:,.2f}", f"{bp_ship:,.2f}", f"{bp_tot:,.2f}",
-                ],
-                f"End User Price ({curr})": [
-                    "—", "—", "—", "—", f"{eu_tot:,.2f}",
                 ],
             }, hide_index=True, use_container_width=True)
             _sys_label = f"{n_sys} × {model_info.get('short', model_code)}" if n_sys > 1 else model_info.get('short', model_code)
