@@ -106,7 +106,7 @@ p, li { color: var(--gray-100) !important; font-size: 16px !important; line-heig
 .ibm-nav {
   background: var(--gray-100);
   padding: 0 40px;
-  height: 48px;
+  height: 56px;
   width: 100%;
   box-sizing: border-box;
   display: flex;
@@ -116,13 +116,13 @@ p, li { color: var(--gray-100) !important; font-size: 16px !important; line-heig
   margin-top: 0 !important;
 }
 /* Push content below fixed nav */
-.ibm-nav-spacer { height: 48px; }
+.ibm-nav-spacer { height: 56px; }
 /* Left side: brand + page links grouped together */
 .ibm-nav-left {
   display: flex; align-items: center; gap: 0;
 }
 .ibm-nav-brand {
-  font-size: 14px; font-weight: 600; color: #ffffff;
+  font-size: 15px; font-weight: 600; color: #ffffff;
   letter-spacing: 0.01em; font-family: 'IBM Plex Sans', sans-serif;
   white-space: nowrap; padding-right: 8px;
 }
@@ -135,7 +135,7 @@ p, li { color: var(--gray-100) !important; font-size: 16px !important; line-heig
 }
 .ibm-nav-links { display: flex; gap: 0; align-items: center; }
 .ibm-nav-link {
-  font-size: 14px; color: #c6c6c6; padding: 0 14px; height: 48px;
+  font-size: 14px; color: #c6c6c6; padding: 0 16px; height: 56px;
   display: flex; align-items: center; cursor: pointer;
   font-family: 'IBM Plex Sans', sans-serif; text-decoration: none;
   white-space: nowrap;
@@ -157,15 +157,15 @@ p, li { color: var(--gray-100) !important; font-size: 16px !important; line-heig
 /* ── Nav responsive — small MacBook (≤ 1280px) ──────────────────────────── */
 @media (max-width: 1280px) {
   .ibm-nav { padding: 0 16px; }
-  .ibm-nav-link { font-size: 13px; padding: 0 10px; }
+  .ibm-nav-link { font-size: 13px; padding: 0 12px; }
   .ibm-nav-doc-label { display: none; }
   .ibm-nav-doc-group { margin-left: 4px; padding-left: 4px; }
 }
 @media (max-width: 1024px) {
-  .ibm-nav { padding: 0 12px; height: auto; min-height: 48px; flex-wrap: wrap; }
+  .ibm-nav { padding: 0 12px; height: auto; min-height: 56px; flex-wrap: wrap; }
   .ibm-nav-left { flex-wrap: wrap; }
   .ibm-nav-links { flex-wrap: wrap; }
-  .ibm-nav-link { font-size: 12px; padding: 0 8px; height: 40px; }
+  .ibm-nav-link { font-size: 12px; padding: 0 10px; height: 44px; }
   .ibm-nav-brand { font-size: 13px; }
   .ibm-nav-doc-group { display: none; }
 }
