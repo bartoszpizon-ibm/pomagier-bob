@@ -243,7 +243,7 @@ _TRANS: dict[str, dict[str, str]] = {
     },
     "pl": {
         "lang":                 "pl",
-        "cover_subtitle":       "Technicze Podsumowanie Wykonawcze",
+        "cover_subtitle":       "Techniczne Podsumowanie Wykonawcze",
         "prepared_for":         "Przygotowane dla",
         "prepared_by":          "Przygotowane przez",
         "date":                 "Data",
@@ -441,7 +441,7 @@ def generate_exec_summary(
         discount_pct: discount percentage (0–100).
         iops_override: manual IOPS if no performance file was uploaded.
         num_systems: number of systems (multiplies price, adds note when > 1).
-        eu_margin_pct: end-user margin added on top of BP price (default 15%).
+        eu_margin_pct: partner margin — BP = EU × (1 - margin%) (default 15%).
 
     Returns:
         DOCX file content as bytes.
@@ -494,22 +494,20 @@ def generate_exec_summary(
 def _add_cover_page(doc, project, model_info, client_name, seller_name, T):
     """
     Premium cover page with:
-    - Dark header band with white IBM logo
+    - Clean white header with IBM 2026 logo (left) + blue accent line
     - Large centered product image
     - Two-line title: "Executive Summary" + model name
     - Blue accent metadata table
     """
-    # ═══ 1. DARK HEADER BAND WITH WHITE IBM LOGO ═══
-    # IBM_logo_white.png is solid RGB (dark blue bg + white text) — always docx-safe
-    white_logo = LOGOS_DIR / "IBM_logo_white.png"
-    if white_logo.exists():
+    # ═══ 1. HEADER ROW: IBM LOGO (left) ═══
+    new_logo = LOGOS_DIR / "ibm-logo-2026.png"
+    if new_logo.exists():
         hdr_p = doc.add_paragraph()
         hdr_p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-        _para_space(hdr_p, before=0, after=0)
+        _para_space(hdr_p, before=0, after=6)
         hdr_run = hdr_p.add_run()
-        # Full page-width: A4 minus margins = ~16 cm
-        hdr_run.add_picture(str(white_logo), width=Cm(16))
-    
+        hdr_run.add_picture(str(new_logo), width=Cm(4))
+
     # ═══ 2. BLUE ACCENT LINE ═══
     accent_p = doc.add_paragraph()
     _para_space(accent_p, before=0, after=0)
@@ -540,9 +538,9 @@ def _add_cover_page(doc, project, model_info, client_name, seller_name, T):
         if image_path.exists():
             img_p = doc.add_paragraph()
             img_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            _para_space(img_p, before=30, after=30)
+            _para_space(img_p, before=10, after=10)
             img_run = img_p.add_run()
-            img_run.add_picture(str(image_path), width=Cm(16))
+            img_run.add_picture(str(image_path), width=Cm(10))
     
     # ═══ 4. TWO-LINE TITLE ═══
     # Line 1: "Executive Summary" (gray, 14pt)
@@ -1395,47 +1393,60 @@ def _calc_pricing(
     num_systems: int = 1,
     eu_margin_pct: float = 15.0,
 ) -> dict:
+    """
+    Pricing model:
+      EU price  = List × (1 - discount%)        ← discount gives EU price directly
+      BP price  = EU × (1 - margin%)             ← BP is what the partner pays IBM
+      List price = 100% reference (e-config)
+    """
     d = discount_pct / 100.0
     n = max(1, int(num_systems))
-    # Per-unit list prices
+    m = 1.0 - eu_margin_pct / 100.0
+
     list_hw      = project.get("list_price_hw", 0.0)
     list_sw      = project.get("list_price_sw", 0.0)
     list_support = project.get("list_price_support", 0.0)
     shipping     = project.get("shipping", 0.0)
 
-    # Per-unit BP prices
-    bp_hw      = list_hw * (1 - d)
-    bp_sw      = list_sw * (1 - d)
-    bp_support = list_support * (1 - d)
-    bp_total_1 = bp_hw + bp_sw + bp_support + shipping   # single unit
+    # EU price per line = list × (1 - discount%)
+    eu_hw_1      = list_hw      * (1 - d)
+    eu_sw_1      = list_sw      * (1 - d)
+    eu_support_1 = list_support * (1 - d)
+    eu_ship_1    = shipping                      # shipping non-discountable
 
-    # Totals scaled by number of systems
-    m              = 1 + eu_margin_pct / 100.0
-    list_grand     = (list_hw + list_sw + list_support + shipping) * n
-    bp_total       = bp_total_1 * n
-    end_user_total = bp_total * m
+    eu_total_1   = eu_hw_1 + eu_sw_1 + eu_support_1 + eu_ship_1
+
+    # BP price per line = EU × (1 - margin%)
+    bp_hw_1      = eu_hw_1      * m
+    bp_sw_1      = eu_sw_1      * m
+    bp_support_1 = eu_support_1 * m
+    bp_ship_1    = eu_ship_1    * m
+
+    bp_total_1   = bp_hw_1 + bp_sw_1 + bp_support_1 + bp_ship_1
+
+    list_grand   = (list_hw + list_sw + list_support + shipping) * n
 
     return {
         "discount_pct":    discount_pct,
         "num_systems":     n,
         "eu_margin_pct":   eu_margin_pct,
         # list prices (scaled)
-        "list_hw":         list_hw * n,
-        "list_sw":         list_sw * n,
+        "list_hw":         list_hw      * n,
+        "list_sw":         list_sw      * n,
         "list_support":    list_support * n,
-        "shipping":        shipping * n,
+        "shipping":        shipping     * n,
         "list_total":      list_grand,
-        # BP prices (scaled) — kept for internal use
-        "bp_hw":           bp_hw * n,
-        "bp_sw":           bp_sw * n,
-        "bp_support":      bp_support * n,
-        "bp_total":        bp_total,
-        # End User prices per line (bp × margin, scaled)
-        "eu_hw":           bp_hw * n * m,
-        "eu_sw":           bp_sw * n * m,
-        "eu_support":      bp_support * n * m,
-        "eu_ship":         shipping * n * m,
-        "end_user_total":  end_user_total,
+        # EU prices (scaled) — discount applied to list price
+        "eu_hw":           eu_hw_1      * n,
+        "eu_sw":           eu_sw_1      * n,
+        "eu_support":      eu_support_1 * n,
+        "eu_ship":         eu_ship_1    * n,
+        "end_user_total":  eu_total_1   * n,
+        # BP prices (scaled) — EU minus partner margin
+        "bp_hw":           bp_hw_1      * n,
+        "bp_sw":           bp_sw_1      * n,
+        "bp_support":      bp_support_1 * n,
+        "bp_total":        bp_total_1   * n,
     }
 
 
@@ -1461,16 +1472,14 @@ def _set_default_font(doc):
 
 
 def _add_logo_header(doc):
-    logo_path = LOGOS_DIR / "IBM_logo.svg"
-    png_logo = LOGOS_DIR / "IBM_logo.png"
-    logo_to_embed = _get_logo_png(logo_path, png_logo)
+    logo_path = LOGOS_DIR / "ibm-logo-2026.png"
 
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     _para_space(p, before=0, after=4)
     run = p.add_run()
-    if logo_to_embed and logo_to_embed.exists():
-        run.add_picture(str(logo_to_embed), width=Cm(3.5))
+    if logo_path.exists():
+        run.add_picture(str(logo_path), width=Cm(3))
     else:
         run.text = "IBM"
         run.font.bold = True
