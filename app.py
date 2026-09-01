@@ -1617,8 +1617,8 @@ with main:
     # PRODUCT LINE SELECTOR
     # =========================================================================
     _LINE_OPTIONS = {
-        "flashsystem": ("💾", "FlashSystem",     "All-NVMe block storage (FS5600 · FS7600 · FS9600 · …)"),
-        "scale":       ("⚡", "Storage Scale",   "Parallel file storage for AI & HPC (Scale 3500 · 6000)"),
+        "flashsystem": ("⚡", "FlashSystem",     "All-NVMe block storage (FS5600 · FS7600 · FS9600 · …)"),
+        "scale":       ("🗂️", "Storage Scale",   "Parallel file storage for AI & HPC (Scale 3500 · 6000)"),
         "fusion":      ("☁️", "Storage Fusion",  "Coming soon — hybrid cloud storage orchestration"),
         "power":       ("🖥️", "Power Server",    "Coming soon — IBM Power10 compute"),
     }
