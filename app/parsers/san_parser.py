@@ -17,7 +17,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from app.knowledge.product_db import (
+from ..knowledge.product_db import (
     SAN_SWITCH_DB,
     SAN_PORT_UPGRADES,
     SAN_BASE_BUNDLES,

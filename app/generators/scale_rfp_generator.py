@@ -16,7 +16,7 @@ from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Cm, Pt, RGBColor
 
-from app.knowledge.product_db import get_model_info
+from ..knowledge.product_db import get_model_info
 
 IBM_BLUE  = RGBColor(0x00, 0x62, 0xFF)
 IBM_DARK  = RGBColor(0x16, 0x16, 0x16)

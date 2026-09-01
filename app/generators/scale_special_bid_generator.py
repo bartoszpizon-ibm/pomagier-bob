@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.generators.special_bid_generator import generate_special_bid
-from app.knowledge.product_db import get_model_info
+from .special_bid_generator import generate_special_bid
+from ..knowledge.product_db import get_model_info
 
 
 def generate_scale_special_bid(

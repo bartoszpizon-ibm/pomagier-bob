@@ -18,7 +18,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor, Inches
 
-from app.knowledge.product_db import get_model_info, get_docs
+from ..knowledge.product_db import get_model_info, get_docs
 
 # IBM design tokens
 IBM_BLUE       = RGBColor(0x00, 0x62, 0xFF)

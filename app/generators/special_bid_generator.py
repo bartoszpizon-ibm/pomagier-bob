@@ -17,7 +17,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Pt, RGBColor
 
-from app.knowledge.product_db import get_model_info
+from ..knowledge.product_db import get_model_info
 
 TEMPLATE_PATH = Path(__file__).parent.parent.parent / \
     "HW Special Bid Pricing Request Questionnaire - TEST.docx"
