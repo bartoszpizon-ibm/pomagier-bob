@@ -68,6 +68,16 @@ def generate_special_bid(
     n = max(1, int(num_systems))
     model_name = model_info.get("name", model_code)
 
+    # For SAN-only deals: use switch name(s) as model_name
+    _san_switches = project.get("san_switches", [])
+    _is_san_only_bid = bool(_san_switches) and not bool(model_code)
+    if _is_san_only_bid and not model_name:
+        _sw_names = ", ".join(
+            f"{sw.get('qty', 1)}× {sw.get('switch_name', sw.get('switch_short', 'SAN Switch'))}"
+            for sw in _san_switches
+        )
+        model_name = _sw_names or "IBM b-type SAN Switch"
+
     # --- build pricing strings (scaled by number of systems) ---
     list_hw  = project.get("list_price_hw", 0.0)
     list_sw  = project.get("list_price_sw", 0.0)
@@ -98,23 +108,40 @@ def generate_special_bid(
         dev_str = (f"a {dev:.1f}-point deviation above the standard 60% baseline"
                    if dev > 0 else "within the standard 60% baseline")
         _sys_str = f" for {n} × {model_name}" if n > 1 else ""
-        business_justification = (
-            f"Requested BP price: {net_tot:,.0f} {curr}{_sys_str} "
-            f"(IBM list: {list_tot:,.0f} {curr}) — discount {discount_pct:.1f}%, {dev_str}.\n\n"
-            f"Justification: IBM list pricing is not competitive for this opportunity without "
-            f"exception support. Competing vendors are expected to submit proposals priced "
-            f"significantly below IBM list; failing to match their price band will result in "
-            f"IBM losing the deal. The requested discount is the minimum level required to "
-            f"align the IBM net price with the customer's confirmed budget and the competitive "
-            f"price range established through the RFP benchmarking process.\n\n"
-            f"IBM {model_name} value justification: (1) Hardware-accelerated inline AI ransomware "
-            f"detection at the drive level — no additional software cost; "
-            f"(2) Distributed RAID 6 with >2 TB/h rebuild speed — minimising data "
-            f"exposure during drive failure for Tier-1 workloads; (3) IBM Storage Insights — "
-            f"proactive capacity and performance management included with the purchase.\n\n"
-            f"[Pricing approver note: please add specific competitor price intelligence and "
-            f"customer budget confirmation before submission.]"
-        )
+        if _is_san_only_bid:
+            business_justification = (
+                f"Requested BP price: {net_tot:,.0f} {curr}{_sys_str} "
+                f"(IBM list: {list_tot:,.0f} {curr}) — discount {discount_pct:.1f}%, {dev_str}.\n\n"
+                f"Justification: IBM list pricing is not competitive for this SAN infrastructure "
+                f"refresh without exception support. Competing SAN vendors (Cisco MDS, HPE SN) "
+                f"are expected to submit proposals priced significantly below IBM list; "
+                f"failing to match their price band will result in IBM losing the deal.\n\n"
+                f"IBM {model_name} value justification: (1) Native IBM stack integration — "
+                f"single-vendor support with FlashSystem and DS8000 storage; "
+                f"(2) Gen 7/8 Fibre Channel technology — 64 Gbps FC and NVMe-oF readiness; "
+                f"(3) IBM Storage Expert Care — 4-hour hardware response SLA with proactive "
+                f"monitoring through IBM Storage Insights.\n\n"
+                f"[Pricing approver note: please add specific competitor price intelligence and "
+                f"customer budget confirmation before submission.]"
+            )
+        else:
+            business_justification = (
+                f"Requested BP price: {net_tot:,.0f} {curr}{_sys_str} "
+                f"(IBM list: {list_tot:,.0f} {curr}) — discount {discount_pct:.1f}%, {dev_str}.\n\n"
+                f"Justification: IBM list pricing is not competitive for this opportunity without "
+                f"exception support. Competing vendors are expected to submit proposals priced "
+                f"significantly below IBM list; failing to match their price band will result in "
+                f"IBM losing the deal. The requested discount is the minimum level required to "
+                f"align the IBM net price with the customer's confirmed budget and the competitive "
+                f"price range established through the RFP benchmarking process.\n\n"
+                f"IBM {model_name} value justification: (1) Hardware-accelerated inline AI ransomware "
+                f"detection at the drive level — no additional software cost; "
+                f"(2) Distributed RAID 6 with >2 TB/h rebuild speed — minimising data "
+                f"exposure during drive failure for Tier-1 workloads; (3) IBM Storage Insights — "
+                f"proactive capacity and performance management included with the purchase.\n\n"
+                f"[Pricing approver note: please add specific competitor price intelligence and "
+                f"customer budget confirmation before submission.]"
+            )
 
     # Bid validity — extend if needed
     if extended_validity_days > 30:

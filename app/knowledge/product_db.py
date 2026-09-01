@@ -2,6 +2,8 @@
 Product knowledge base: feature codes → descriptions, support codes → SLA, model → image/name.
 """
 
+import re
+
 # ---------------------------------------------------------------------------
 # Support feature-code → SLA mapping
 # ---------------------------------------------------------------------------
@@ -191,6 +193,39 @@ FEATURE_LABELS: dict[str, str] = {
 # Multiple codes can map to the same model (different configs/generations).
 # ── Documentation links per product family (short name → urls) ────────────
 _DOCS: dict[str, dict[str, str]] = {
+    # ── SAN Switches (b-type / Brocade OEM) ───────────────────────────────────
+    "SAN24B-7": {
+        "docs_url":         "https://www.ibm.com/docs/en/storage-networking?topic=family-storage-networking-san24b-7",
+        "sales_manual_url": "https://www.ibm.com/docs/en/announcements/family-896904-storage-networking-san24b-7",
+    },
+    "SAN64B-7": {
+        "docs_url":         "https://www.ibm.com/docs/en/storage-networking?topic=family-storage-networking-san64b-7",
+        "sales_manual_url": "https://www.ibm.com/docs/en/announcements/family-896903-storage-networking-san64b-7",
+    },
+    "SAN128B-7": {
+        "docs_url":         "https://www.ibm.com/docs/en/storage-networking?topic=family-storage-networking-san128b-7",
+        "sales_manual_url": "https://www.ibm.com/docs/en/announcements/family-896903-storage-networking-san128b-7",
+    },
+    "SAN256B-7": {
+        "docs_url":         "https://www.ibm.com/docs/en/storage-networking?topic=family-storage-networking-san256b-7",
+        "sales_manual_url": "https://www.ibm.com/docs/en/announcements/family-896903-storage-networking-san256b-7",
+    },
+    "SAN512B-7": {
+        "docs_url":         "https://www.ibm.com/docs/en/storage-networking?topic=family-storage-networking-san512b-7",
+        "sales_manual_url": "https://www.ibm.com/docs/en/announcements/family-896903-storage-networking-san512b-7",
+    },
+    "SAN56B-8": {
+        "docs_url":         "https://www.ibm.com/docs/en/storage-networking?topic=family-storage-networking-san56b-8",
+        "sales_manual_url": "https://www.ibm.com/docs/en/announcements/family-storage-networking-san56b-8",
+    },
+    "SAN256B-8": {
+        "docs_url":         "https://www.ibm.com/docs/en/storage-networking?topic=family-storage-networking-san256b-8",
+        "sales_manual_url": "https://www.ibm.com/docs/en/announcements/family-storage-networking-san256b-8",
+    },
+    "SAN512B-8": {
+        "docs_url":         "https://www.ibm.com/docs/en/storage-networking?topic=family-storage-networking-san512b-8",
+        "sales_manual_url": "https://www.ibm.com/docs/en/announcements/family-storage-networking-san512b-8",
+    },
     # ── Storage Scale ─────────────────────────────────────────────────────────
     "SS3500": {
         "docs_url":         "https://www.ibm.com/docs/en/storage-scale-system/3500",
@@ -945,6 +980,359 @@ MODEL_DB: dict[str, dict] = {
         ],
     },
 }
+
+# ---------------------------------------------------------------------------
+# SAN switch knowledge base
+# ---------------------------------------------------------------------------
+# MTM → switch name, port count, exhaust direction, speed
+# 8969-P** = front-port exhaust, 8969-R** = rear-port exhaust
+# SAN b-type gen 7 (32/64 Gbps), gen 8 (64/128 Gbps)
+SAN_SWITCH_DB: dict[str, dict] = {
+    # ── SAN24B-7 (Brocade G720) ────────────────────────────────────────────────
+    # 8969-P24 = front-port exhaust, 8969-R24 = rear-port exhaust
+    # Base: 8 × 32 Gbps SFP+ licensed; max: 24 × 32 Gbps (via port upgrades)
+    "8969-P24": {
+        "name": "IBM Storage Networking SAN24B-7",
+        "short": "SAN24B-7",
+        "brocade_model": "Brocade G720",
+        "family": "SAN Switch",
+        "form_factor": "1U",
+        "exhaust": "front-port",
+        "base_ports": 8,
+        "max_ports": 24,
+        "port_speed_gbps": 32,
+        "image": None,
+        "description": (
+            "IBM Storage Networking SAN24B-7 is a 24-port, 1U entry-level SAN switch "
+            "supporting up to 32 Gbps Fibre Channel per port. Front-port exhaust design."
+        ),
+        "highlights": [
+            "Up to 24 × 32 Gbps FC ports in 1U",
+            "Base license: 8 ports (expandable via port upgrades)",
+            "Front-port exhaust airflow",
+            "Supports 16/32 Gbps auto-negotiation",
+            "IBM Storage Expert Care support",
+        ],
+    },
+    "8969-R24": {
+        "name": "IBM Storage Networking SAN24B-7",
+        "short": "SAN24B-7",
+        "brocade_model": "Brocade G720",
+        "family": "SAN Switch",
+        "form_factor": "1U",
+        "exhaust": "rear-port",
+        "base_ports": 8,
+        "max_ports": 24,
+        "port_speed_gbps": 32,
+        "image": None,
+        "description": (
+            "IBM Storage Networking SAN24B-7 is a 24-port, 1U entry-level SAN switch "
+            "supporting up to 32 Gbps Fibre Channel per port. Rear-port exhaust design."
+        ),
+        "highlights": [
+            "Up to 24 × 32 Gbps FC ports in 1U",
+            "Base license: 8 ports (expandable via port upgrades)",
+            "Rear-port exhaust airflow",
+            "Supports 16/32 Gbps auto-negotiation",
+            "IBM Storage Expert Care support",
+        ],
+    },
+    # ── SAN64B-7 (Brocade G730) ────────────────────────────────────────────────
+    # 8969-P64 = front-port exhaust, 8969-R64 = rear-port exhaust
+    # Base: 24 × 64 Gbps (bundle 2684/2687); expand with 7506 (8×32 Gbps SW upgrade) or 7507 (8×64 Gbps)
+    "8969-P64": {
+        "name": "IBM Storage Networking SAN64B-7",
+        "short": "SAN64B-7",
+        "brocade_model": "Brocade G730",
+        "family": "SAN Switch",
+        "form_factor": "1U",
+        "exhaust": "front-port",
+        "base_ports": 24,
+        "max_ports": 64,
+        "port_speed_gbps": 64,
+        "image": None,
+        "description": (
+            "IBM Storage Networking SAN64B-7 is a 64-port, 1U high-performance SAN switch "
+            "supporting up to 64 Gbps Fibre Channel per port. Front-port exhaust design."
+        ),
+        "highlights": [
+            "Up to 64 × 64 Gbps FC ports in 1U",
+            "Base bundle: 24 active ports (expandable via 8-port upgrades)",
+            "Front-port exhaust airflow",
+            "Supports 8/16/32/64 Gbps auto-negotiation",
+            "IBM Storage Expert Care support",
+        ],
+    },
+    "8969-R64": {
+        "name": "IBM Storage Networking SAN64B-7",
+        "short": "SAN64B-7",
+        "brocade_model": "Brocade G730",
+        "family": "SAN Switch",
+        "form_factor": "1U",
+        "exhaust": "rear-port",
+        "base_ports": 24,
+        "max_ports": 64,
+        "port_speed_gbps": 64,
+        "image": None,
+        "description": (
+            "IBM Storage Networking SAN64B-7 is a 64-port, 1U high-performance SAN switch "
+            "supporting up to 64 Gbps Fibre Channel per port. Rear-port exhaust design."
+        ),
+        "highlights": [
+            "Up to 64 × 64 Gbps FC ports in 1U",
+            "Base bundle: 24 active ports (expandable via 8-port upgrades)",
+            "Rear-port exhaust airflow",
+            "Supports 8/16/32/64 Gbps auto-negotiation",
+            "IBM Storage Expert Care support",
+        ],
+    },
+    # ── SAN128B-7 (Brocade X7-4) ──────────────────────────────────────────────
+    # 8969-P96 = front-port exhaust (note: IBM MTM uses P96 for SAN128B-7)
+    # 8969-R96 = rear-port exhaust
+    # Base: 48 × 64 Gbps; expandable to 128 ports via blade upgrades
+    "8969-P96": {
+        "name": "IBM Storage Networking SAN128B-7",
+        "short": "SAN128B-7",
+        "brocade_model": "Brocade X7-4",
+        "family": "SAN Switch",
+        "form_factor": "7U",
+        "exhaust": "front-port",
+        "base_ports": 48,
+        "max_ports": 128,
+        "port_speed_gbps": 64,
+        "image": None,
+        "description": (
+            "IBM Storage Networking SAN128B-7 is a 128-port, 7U director-class SAN switch "
+            "supporting up to 64 Gbps Fibre Channel per port. Front-port exhaust design."
+        ),
+        "highlights": [
+            "Up to 128 × 64 Gbps FC ports in 7U director chassis",
+            "Base: 48 active ports (expandable via port blade upgrades)",
+            "Front-port exhaust airflow",
+            "Director-class high availability with redundant components",
+            "IBM Storage Expert Care support",
+        ],
+    },
+    "8969-R96": {
+        "name": "IBM Storage Networking SAN128B-7",
+        "short": "SAN128B-7",
+        "brocade_model": "Brocade X7-4",
+        "family": "SAN Switch",
+        "form_factor": "7U",
+        "exhaust": "rear-port",
+        "base_ports": 48,
+        "max_ports": 128,
+        "port_speed_gbps": 64,
+        "image": None,
+        "description": (
+            "IBM Storage Networking SAN128B-7 is a 128-port, 7U director-class SAN switch "
+            "supporting up to 64 Gbps Fibre Channel per port. Rear-port exhaust design."
+        ),
+        "highlights": [
+            "Up to 128 × 64 Gbps FC ports in 7U director chassis",
+            "Base: 48 active ports (expandable via port blade upgrades)",
+            "Rear-port exhaust airflow",
+            "Director-class high availability with redundant components",
+            "IBM Storage Expert Care support",
+        ],
+    },
+    # ── SAN256B-7 (Brocade X7-8) ──────────────────────────────────────────────
+    # 8969-P512 = front-port exhaust (large director)
+    "8969-P512": {
+        "name": "IBM Storage Networking SAN256B-7",
+        "short": "SAN256B-7",
+        "brocade_model": "Brocade X7-8",
+        "family": "SAN Switch",
+        "form_factor": "14U",
+        "exhaust": "front-port",
+        "base_ports": 96,
+        "max_ports": 256,
+        "port_speed_gbps": 64,
+        "image": None,
+        "description": (
+            "IBM Storage Networking SAN256B-7 is a 256-port, 14U director-class SAN switch "
+            "supporting up to 64 Gbps Fibre Channel per port."
+        ),
+        "highlights": [
+            "Up to 256 × 64 Gbps FC ports in 14U director chassis",
+            "Director-class high availability with redundant components",
+            "IBM Storage Expert Care support",
+        ],
+    },
+    # ── SAN512B-7 (Brocade X7-8) — large director 512 ports ───────────────────
+    "8969-P768": {
+        "name": "IBM Storage Networking SAN512B-7",
+        "short": "SAN512B-7",
+        "brocade_model": "Brocade X7-8",
+        "family": "SAN Switch",
+        "form_factor": "14U",
+        "exhaust": "front-port",
+        "base_ports": 192,
+        "max_ports": 512,
+        "port_speed_gbps": 64,
+        "image": None,
+        "description": (
+            "IBM Storage Networking SAN512B-7 is a 512-port, 14U director-class SAN switch "
+            "supporting up to 64 Gbps Fibre Channel per port."
+        ),
+        "highlights": [
+            "Up to 512 × 64 Gbps FC ports in 14U director chassis",
+            "Director-class high availability with redundant components",
+            "IBM Storage Expert Care support",
+        ],
+    },
+    # ── SAN56B-8 (Brocade G820) gen 8 ─────────────────────────────────────────
+    "8969-P56": {
+        "name": "IBM Storage Networking SAN56B-8",
+        "short": "SAN56B-8",
+        "brocade_model": "Brocade G820",
+        "family": "SAN Switch",
+        "form_factor": "1U",
+        "exhaust": "front-port",
+        "base_ports": 24,
+        "max_ports": 56,
+        "port_speed_gbps": 64,
+        "image": None,
+        "description": (
+            "IBM Storage Networking SAN56B-8 is a 56-port, 1U Gen 8 SAN switch "
+            "supporting up to 64 Gbps Fibre Channel per port. Front-port exhaust design."
+        ),
+        "highlights": [
+            "Up to 56 × 64 Gbps FC ports in 1U",
+            "Gen 8 Fibre Channel technology",
+            "Front-port exhaust airflow",
+            "IBM Storage Expert Care support",
+        ],
+    },
+    "8969-R56": {
+        "name": "IBM Storage Networking SAN56B-8",
+        "short": "SAN56B-8",
+        "brocade_model": "Brocade G820",
+        "family": "SAN Switch",
+        "form_factor": "1U",
+        "exhaust": "rear-port",
+        "base_ports": 24,
+        "max_ports": 56,
+        "port_speed_gbps": 64,
+        "image": None,
+        "description": (
+            "IBM Storage Networking SAN56B-8 is a 56-port, 1U Gen 8 SAN switch "
+            "supporting up to 64 Gbps Fibre Channel per port. Rear-port exhaust design."
+        ),
+        "highlights": [
+            "Up to 56 × 64 Gbps FC ports in 1U",
+            "Gen 8 Fibre Channel technology",
+            "Rear-port exhaust airflow",
+            "IBM Storage Expert Care support",
+        ],
+    },
+    # ── SAN256B-8 (Brocade X8-4 director) ─────────────────────────────────────
+    "8969-P256": {
+        "name": "IBM Storage Networking SAN256B-8",
+        "short": "SAN256B-8",
+        "brocade_model": "Brocade X8-4",
+        "family": "SAN Switch",
+        "form_factor": "7U",
+        "exhaust": "front-port",
+        "base_ports": 48,
+        "max_ports": 256,
+        "port_speed_gbps": 64,
+        "image": None,
+        "description": (
+            "IBM Storage Networking SAN256B-8 is a 256-port Gen 8 director-class SAN switch "
+            "supporting up to 64 Gbps Fibre Channel per port."
+        ),
+        "highlights": [
+            "Up to 256 × 64 Gbps FC ports in director chassis",
+            "Gen 8 Fibre Channel technology",
+            "Director-class high availability",
+            "IBM Storage Expert Care support",
+        ],
+    },
+    # ── SAN512B-8 (Brocade X8-8 large director) ───────────────────────────────
+    "8969-P520": {
+        "name": "IBM Storage Networking SAN512B-8",
+        "short": "SAN512B-8",
+        "brocade_model": "Brocade X8-8",
+        "family": "SAN Switch",
+        "form_factor": "14U",
+        "exhaust": "front-port",
+        "base_ports": 96,
+        "max_ports": 512,
+        "port_speed_gbps": 64,
+        "image": None,
+        "description": (
+            "IBM Storage Networking SAN512B-8 is a 512-port Gen 8 director-class SAN switch "
+            "supporting up to 64 Gbps Fibre Channel per port."
+        ),
+        "highlights": [
+            "Up to 512 × 64 Gbps FC ports in director chassis",
+            "Gen 8 Fibre Channel technology",
+            "Director-class high availability",
+            "IBM Storage Expert Care support",
+        ],
+    },
+}
+
+# Port upgrade feature codes for SAN switches — used to count active ports
+# Format: feature_code → ports_added_per_unit
+SAN_PORT_UPGRADES: dict[str, int] = {
+    # SAN24B-7
+    "7521": 8,   # SAN24B-7 8 Port 32Gbps SW Upgrade
+    # SAN64B-7
+    "7506": 8,   # SAN64B-7 8 Port 32Gbps SW Upgrade
+    "7507": 8,   # SAN64B-7 8 Port 64Gbps SW Upgrade
+    # SAN128B-7 / SAN96B-7 blades
+    "7508": 24,  # SAN96B-7 24 Port 64Gbps SW Upgrade
+    "7509": 24,  # SAN128B-7 24 Port 64Gbps SW Upgrade
+    # SAN56B-8
+    "7516": 8,   # SAN56B-8 8 Port 64Gbps SW Upgrade
+    # SAN256B-8
+    "7518": 24,  # SAN256B-8 24 Port 64Gbps SW Upgrade
+}
+
+# SAN base bundle feature codes → initial active ports provided by the bundle
+SAN_BASE_BUNDLES: dict[str, int] = {
+    # SAN24B-7
+    "2680": 8,   # SAN24B-7 8 x 32Gbps SW SFP Bundle
+    "2681": 16,  # SAN24B-7 16 x 32Gbps SW SFP Bundle
+    "2682": 24,  # SAN24B-7 24 x 32Gbps SW SFP Bundle
+    # SAN64B-7
+    "2684": 24,  # P64 32 Gbps FlashSystem Value Bundle (24 ports at 32 Gbps)
+    "2685": 32,  # SAN64B-7 32 x 32Gbps SW SFP Bundle
+    "2686": 48,  # SAN64B-7 48 x 32Gbps SW SFP Bundle
+    "2687": 24,  # SAN64B-7 R64 24 x 64Gbps SW SFP Bundle
+    "2688": 32,  # SAN64B-7 32 x 64Gbps SW SFP Bundle
+    # SAN128B-7 blades
+    "2664": 48,  # P96 48 x 64Gbps SW SFP Bundle
+    "2665": 96,  # P96 96 x 64Gbps SW SFP Bundle
+    # SAN56B-8
+    "2690": 24,  # SAN56B-8 24 x 64Gbps SW SFP Bundle
+    "2691": 32,  # SAN56B-8 32 x 64Gbps SW SFP Bundle
+    "2692": 48,  # SAN56B-8 48 x 64Gbps SW SFP Bundle
+    # SAN256B-8
+    "2700": 48,  # SAN256B-8 48 x 64Gbps SW SFP Bundle
+}
+
+# SANnav software product codes
+SANNAV_PRODUCTS: dict[str, str] = {
+    "2208-GVW": "IBM SANnav Global View",
+    "2208-MPB": "IBM SANnav Management Portal Base Edition",
+    "2208-MPE": "IBM SANnav Management Portal Enterprise Edition",
+    # SWMAs / subscription renewals
+    "2208-GVS": "IBM SANnav Global View (SWMA)",
+    "2208-MPS": "IBM SANnav Management Portal (SWMA)",
+}
+
+def get_san_switch_info(model_code: str) -> dict:
+    """Return SAN switch metadata for a given MTM (e.g. '8969-R64')."""
+    return SAN_SWITCH_DB.get(model_code, {})
+
+
+def is_san_switch_mtm(model_code: str) -> bool:
+    """Return True if the MTM code belongs to a SAN b-type switch."""
+    return model_code in SAN_SWITCH_DB or bool(re.match(r"^8969-", model_code))
+
 
 def get_docs(short: str) -> dict[str, str]:
     """Return documentation URLs for a product short name (e.g. 'FS5600')."""

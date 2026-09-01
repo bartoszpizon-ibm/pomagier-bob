@@ -203,7 +203,7 @@ _TRANS: dict[str, dict[str, str]] = {
         "sw_code":              "Product Code",
         "sw_desc":              "Description",
         "multi_system_note":    "This document covers a configuration of {n} × {model}. Performance and capacity specifications below refer to a single system.",
-        "price_info":           "List prices from IBM e-config · Price file: {pf} · Discount applied: {d:.1f}% · Offer valid until: {vu}",
+        "price_info":           "List prices from IBM e-config · Price file: {pf} · Approx. discount applied: {d}% · Offer valid until: {vu}",
         "price_cat":            "Category",
         "price_qty":            "Qty",
         "price_list":           "List Price ({curr})",
@@ -380,7 +380,7 @@ _TRANS: dict[str, dict[str, str]] = {
         "sw_code":              "Kod produktu",
         "sw_desc":              "Opis",
         "multi_system_note":    "Niniejszy dokument obejmuje konfigurację {n} × {model}. Parametry wydajnościowe i pojemnościowe poniżej dotyczą pojedynczego systemu.",
-        "price_info":           "Ceny katalogowe z IBM e-config · Plik cen: {pf} · Rabat: {d:.1f}% · Oferta ważna do: {vu}",
+        "price_info":           "Ceny katalogowe z IBM e-config · Plik cen: {pf} · Szacowany rabat: {d}% · Oferta ważna do: {vu}",
         "price_cat":            "Kategoria",
         "price_qty":            "Ilość",
         "price_list":           "Cena katalogowa ({curr})",
@@ -452,35 +452,57 @@ def generate_exec_summary(
     _set_page_margins(doc)
     _set_default_font(doc)
 
+    san_switches = project.get("san_switches", [])
+    has_san      = bool(san_switches)
+    has_fs       = bool(project.get("model_code", ""))
+
     model_info = get_model_info(project.get("model_code", ""))
     pricing = _calc_pricing(project, discount_pct, num_systems=num_systems, eu_margin_pct=eu_margin_pct)
     iops = iops_override if iops_override else project.get("perf_iops_total", 0)
 
-    # ── Page 1: Cover ────────────────────────────────────────────────────────
-    _add_cover_page(doc, project, model_info, client_name, seller_name, T)
-
-    # ── Page 2+: Content (no blank page between cover and content) ───────────
-    _add_logo_header(doc)
-    _add_executive_summary_text(doc, project, model_info, client_name, T, num_systems=num_systems)
-    _add_section_heading(doc, T["sec_config"])
-    _add_config_table(doc, project, model_info, T)
-    _add_section_heading(doc, T["sec_capacity"])
-    _add_capacity_table(doc, project, T)
-    _add_section_heading(doc, T["sec_performance"])
-    _add_performance_table(doc, project, iops, T)
-    _add_section_heading(doc, T["sec_connectivity"])
-    _add_connectivity_table(doc, project, model_info, T)
-    _add_section_heading(doc, T["sec_environment"])
-    _add_environment_table(doc, project, T)
-    _add_section_heading(doc, T["sec_software"])
-    _add_software_table(doc, project, T)
-    _add_section_heading(doc, T["sec_support"])
-    _add_support_section(doc, project, T)
-    _add_section_heading(doc, T["sec_pricing"])
-    _add_pricing_table(doc, pricing, project, T)
-    _add_section_heading(doc, T["sec_next"])
-    _add_next_steps(doc, project, model_info, client_name, seller_name, T)
-    _add_footer_disclaimer(doc, T)
+    if has_san and not has_fs:
+        # ── SAN-only flow ────────────────────────────────────────────────────
+        _add_san_cover_page(doc, san_switches, client_name, seller_name, project, T)
+        _add_logo_header(doc)
+        _add_san_executive_text(doc, san_switches, client_name, T)
+        _add_san_config_table(doc, san_switches, T)
+        _add_section_heading(doc, T["sec_support"])
+        _add_support_section(doc, project, T)
+        _add_section_heading(doc, T["sec_pricing"])
+        _add_pricing_table(doc, pricing, project, T)
+        _add_section_heading(doc, T["sec_next"])
+        _add_next_steps(doc, project, {}, client_name, seller_name, T,
+                        san_switches=san_switches)
+        _add_footer_disclaimer(doc, T)
+    else:
+        # ── FlashSystem flow (with optional SAN supplement) ──────────────────
+        _add_cover_page(doc, project, model_info, client_name, seller_name, T,
+                        san_switches=san_switches if has_san else None)
+        _add_logo_header(doc)
+        _add_executive_summary_text(doc, project, model_info, client_name, T, num_systems=num_systems)
+        _add_section_heading(doc, T["sec_config"])
+        _add_config_table(doc, project, model_info, T)
+        _add_section_heading(doc, T["sec_capacity"])
+        _add_capacity_table(doc, project, T)
+        _add_section_heading(doc, T["sec_performance"])
+        _add_performance_table(doc, project, iops, T)
+        _add_section_heading(doc, T["sec_connectivity"])
+        _add_connectivity_table(doc, project, model_info, T)
+        _add_section_heading(doc, T["sec_environment"])
+        _add_environment_table(doc, project, T)
+        _add_section_heading(doc, T["sec_software"])
+        _add_software_table(doc, project, T)
+        _add_section_heading(doc, T["sec_support"])
+        _add_support_section(doc, project, T)
+        # ── SAN supplement (when FS + SAN) ───────────────────────────────────
+        if has_san:
+            _add_san_supplement(doc, san_switches, T)
+        _add_section_heading(doc, T["sec_pricing"])
+        _add_pricing_table(doc, pricing, project, T)
+        _add_section_heading(doc, T["sec_next"])
+        _add_next_steps(doc, project, model_info, client_name, seller_name, T,
+                        san_switches=san_switches)
+        _add_footer_disclaimer(doc, T)
 
     buf = io.BytesIO()
     doc.save(buf)
@@ -491,7 +513,7 @@ def generate_exec_summary(
 # Cover page
 # ---------------------------------------------------------------------------
 
-def _add_cover_page(doc, project, model_info, client_name, seller_name, T):
+def _add_cover_page(doc, project, model_info, client_name, seller_name, T, san_switches=None):
     """
     Premium cover page with:
     - Clean white header with IBM 2026 logo (left) + blue accent line
@@ -556,7 +578,15 @@ def _add_cover_page(doc, project, model_info, client_name, seller_name, T):
     model_p = doc.add_paragraph()
     model_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     _para_space(model_p, before=0, after=4)
-    model_run = model_p.add_run(model_info.get("name", "IBM Storage Solution"))
+    # Build title: "IBM FlashSystem 7600" or "IBM FlashSystem 7600 and IBM SAN64B-7"
+    _fs_name = model_info.get("name", "IBM Storage Solution")
+    if san_switches:
+        _san_shorts = list(dict.fromkeys(sw.get("switch_short", "") for sw in san_switches if sw.get("switch_short")))
+        _san_part = " and ".join(f"IBM {s}" for s in _san_shorts)
+        _cover_model_name = f"{_fs_name} and {_san_part}" if _san_part else _fs_name
+    else:
+        _cover_model_name = _fs_name
+    model_run = model_p.add_run(_cover_model_name)
     model_run.font.size = Pt(32)
     model_run.font.bold = True
     model_run.font.color.rgb = IBM_BLUE
@@ -1192,7 +1222,7 @@ def _add_pricing_table(doc, pricing, project, T):
     run = info_p.add_run(
         T["price_info"].format(
             pf=project.get("price_file_date", ""),
-            d=discount_pct,
+            d=math.ceil(discount_pct),
             vu=valid_until.strftime(_date_fmt),
         )
     )
@@ -1279,7 +1309,8 @@ def _add_pricing_table(doc, pricing, project, T):
 # Next Steps
 # ---------------------------------------------------------------------------
 
-def _add_next_steps(doc, project, model_info: dict, client_name: str, seller_name: str, T):
+def _add_next_steps(doc, project, model_info: dict, client_name: str, seller_name: str, T,
+                    san_switches: list | None = None):
     _client = client_name or "your organisation"
     steps = [
         (T["next_1_title"], T["next_1_body"].format(client=_client)),
@@ -1317,7 +1348,33 @@ def _add_next_steps(doc, project, model_info: dict, client_name: str, seller_nam
     contact_run.font.bold = True
     contact_run.font.color.rgb = IBM_BLUE
 
-    # Documentation links block
+    def _link_para(label: str, url: str) -> None:
+        p = doc.add_paragraph()
+        _para_space(p, before=1, after=1)
+        lbl = p.add_run(f"{label}: ")
+        lbl.font.size = Pt(9)
+        lbl.font.color.rgb = IBM_GRAY
+        r_id = p.part.relate_to(url,
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink",
+            is_external=True)
+        hl = OxmlElement("w:hyperlink")
+        hl.set(qn("r:id"), r_id)
+        wr = OxmlElement("w:r")
+        rpr = OxmlElement("w:rPr")
+        style = OxmlElement("w:rStyle")
+        style.set(qn("w:val"), "Hyperlink")
+        rpr.append(style)
+        sz = OxmlElement("w:sz")
+        sz.set(qn("w:val"), "18")
+        rpr.append(sz)
+        wr.append(rpr)
+        wt = OxmlElement("w:t")
+        wt.text = url
+        wr.append(wt)
+        hl.append(wr)
+        p._p.append(hl)
+
+    # Documentation links — FlashSystem
     _short = model_info.get("short", "")
     _docs  = get_docs(_short) if _short else {}
     _docs_url = _docs.get("docs_url", "")
@@ -1333,39 +1390,394 @@ def _add_next_steps(doc, project, model_info: dict, client_name: str, seller_nam
         hr.font.size = Pt(9)
         hr.font.bold = True
         hr.font.color.rgb = IBM_DARK
-
-        def _link_para(label: str, url: str) -> None:
-            p = doc.add_paragraph()
-            _para_space(p, before=1, after=1)
-            # label in gray
-            lbl = p.add_run(f"{label}: ")
-            lbl.font.size = Pt(9)
-            lbl.font.color.rgb = IBM_GRAY
-            # hyperlink run via OOXML
-            r_id = p.part.relate_to(url,
-                "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink",
-                is_external=True)
-            hl = OxmlElement("w:hyperlink")
-            hl.set(qn("r:id"), r_id)
-            wr = OxmlElement("w:r")
-            rpr = OxmlElement("w:rPr")
-            style = OxmlElement("w:rStyle")
-            style.set(qn("w:val"), "Hyperlink")
-            rpr.append(style)
-            sz = OxmlElement("w:sz")
-            sz.set(qn("w:val"), "18")   # 9 pt = 18 half-points
-            rpr.append(sz)
-            wr.append(rpr)
-            wt = OxmlElement("w:t")
-            wt.text = url
-            wr.append(wt)
-            hl.append(wr)
-            p._p.append(hl)
-
         if _docs_url:
             _link_para(T["docs_ibm_docs"], _docs_url)
         if _sm_url:
             _link_para(T["docs_sales_manual"], _sm_url)
+
+    # Documentation links — SAN switches
+    if san_switches:
+        _san_seen: set[str] = set()
+        for _sw in san_switches:
+            _sw_short = _sw.get("switch_short", "")
+            if not _sw_short or _sw_short in _san_seen:
+                continue
+            _san_seen.add(_sw_short)
+            _sw_docs     = get_docs(_sw_short)
+            _sw_docs_url = _sw_docs.get("docs_url", "")
+            _sw_sm_url   = _sw_docs.get("sales_manual_url", "")
+            if _sw_docs_url or _sw_sm_url:
+                doc.add_paragraph()
+                sh_p = doc.add_paragraph()
+                _para_space(sh_p, before=4, after=2)
+                _sw_label = _sw.get("switch_name", _sw_short)
+                shr = sh_p.add_run(f"{T['docs_heading']} — {_sw_label}")
+                shr.font.size = Pt(9)
+                shr.font.bold = True
+                shr.font.color.rgb = IBM_DARK
+                if _sw_docs_url:
+                    _link_para(T["docs_ibm_docs"], _sw_docs_url)
+                if _sw_sm_url:
+                    _link_para(T["docs_sales_manual"], _sw_sm_url)
+
+
+
+# ---------------------------------------------------------------------------
+# SAN-only functions
+# ---------------------------------------------------------------------------
+
+def _add_san_cover_page(doc, san_switches: list, client_name: str, seller_name: str,
+                        project: dict, T):
+    """Cover page for SAN-only configurations."""
+    new_logo = LOGOS_DIR / "ibm-logo-2026.png"
+    if new_logo.exists():
+        hdr_p = doc.add_paragraph()
+        hdr_p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        _para_space(hdr_p, before=0, after=6)
+        hdr_run = hdr_p.add_run()
+        hdr_run.add_picture(str(new_logo), width=Cm(4))
+
+    # Blue accent line
+    accent_p = doc.add_paragraph()
+    _para_space(accent_p, before=0, after=0)
+    pPr = accent_p._p.get_or_add_pPr()
+    pBdr = OxmlElement("w:pBdr")
+    top_b = OxmlElement("w:top")
+    top_b.set(qn("w:val"), "single")
+    top_b.set(qn("w:sz"), "18")
+    top_b.set(qn("w:space"), "0")
+    top_b.set(qn("w:color"), "0062FF")
+    pBdr.append(top_b)
+    pPr.append(pBdr)
+
+    # Title
+    doc_type_p = doc.add_paragraph()
+    doc_type_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    _para_space(doc_type_p, before=40, after=2)
+    dt_run = doc_type_p.add_run(T.get("cover_title", "Executive Summary"))
+    dt_run.font.size = Pt(14)
+    dt_run.font.color.rgb = IBM_GRAY
+    dt_run.font.name = "Calibri Light"
+
+    # Derive a combined title from switch models
+    _sw_names = list(dict.fromkeys(sw.get("switch_short", "") for sw in san_switches if sw.get("switch_short")))
+    _title_line = " + ".join(_sw_names) if _sw_names else "IBM SAN Switch"
+    model_p = doc.add_paragraph()
+    model_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    _para_space(model_p, before=0, after=4)
+    model_run = model_p.add_run(_title_line)
+    model_run.font.size = Pt(28)
+    model_run.font.bold = True
+    model_run.font.color.rgb = IBM_BLUE
+
+    sub_p = doc.add_paragraph()
+    sub_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    _para_space(sub_p, before=0, after=40)
+    sub_run = sub_p.add_run("IBM Storage Networking b-type Fibre Channel Switch")
+    sub_run.font.size = Pt(11)
+    sub_run.font.color.rgb = IBM_GRAY
+
+    # Metadata table
+    accent_table = doc.add_table(rows=1, cols=2)
+    accent_table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    _remove_table_borders(accent_table)
+    accent_bar = accent_table.rows[0].cells[0]
+    accent_bar.width = Cm(0.4)
+    _set_cell_bg(accent_bar, "0062FF")
+    meta_cell = accent_table.rows[0].cells[1]
+    meta_cell.width = Cm(14)
+
+    today = date.today()
+    valid_until = today + timedelta(days=30)
+    _date_fmt = "%d.%m.%Y" if T.get("date") == "Data" else "%B %d, %Y"
+    _country_code = project.get("country_code", "")
+    _country_name = _COUNTRY_NAMES.get(_country_code, _country_code)
+    _client_with_country = (
+        f"{client_name}, {_country_name}" if client_name and _country_name
+        else (client_name or "—")
+    )
+    rows_data = [
+        (T["prepared_for"], _client_with_country),
+        (T["prepared_by"],  seller_name or "—"),
+        (T["date"],         today.strftime(_date_fmt)),
+        (T["valid_until"],  valid_until.strftime(_date_fmt)),
+    ]
+    for i, (label, value) in enumerate(rows_data):
+        if i > 0:
+            meta_cell.add_paragraph()
+        p = meta_cell.paragraphs[i if i == 0 else -1]
+        _para_space(p, before=2, after=2)
+        lbl_run = p.add_run(label + ": ")
+        lbl_run.font.bold = True
+        lbl_run.font.size = Pt(10)
+        lbl_run.font.color.rgb = IBM_GRAY
+        val_run = p.add_run(value)
+        val_run.font.size = Pt(10)
+        val_run.font.color.rgb = IBM_DARK
+
+    footer_p = doc.add_paragraph()
+    footer_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    _para_space(footer_p, before=60, after=0)
+    footer_run = footer_p.add_run("IBM Business Partner Confidential")
+    footer_run.font.size = Pt(9)
+    footer_run.font.color.rgb = RGBColor(0x8D, 0x8D, 0x8D)
+    footer_run.font.italic = True
+
+
+def _add_san_executive_text(doc, san_switches: list, client_name: str, T):
+    """Executive summary narrative for SAN-only configurations."""
+    _add_section_heading(doc, T["sec_exec"])
+    client_str = f"for {client_name} " if client_name else ""
+
+    # Build a summary of configured switches
+    _sw_groups: dict[str, dict] = {}
+    for sw in san_switches:
+        k = sw.get("switch_short", sw.get("model_code", ""))
+        if k not in _sw_groups:
+            _sw_groups[k] = dict(sw)
+        else:
+            _sw_groups[k]["qty"] = _sw_groups[k].get("qty", 1) + sw.get("qty", 1)
+
+    _sw_lines = []
+    for sw in _sw_groups.values():
+        qty          = sw.get("qty", 1)
+        short        = sw.get("switch_short", "")
+        brocade      = sw.get("brocade_model", "")
+        active_ports = sw.get("active_ports", 0)
+        max_ports    = sw.get("max_ports", 0)
+        speed        = sw.get("port_speed_gbps", 0)
+        exhaust      = sw.get("exhaust", "")
+        qty_str      = f"{qty} × " if qty > 1 else ""
+        brocade_str  = f" ({brocade} IBM OEM)" if brocade else ""
+        _sw_lines.append(
+            f"{qty_str}{short}{brocade_str} — {active_ports} active / {max_ports} max ports at {speed} Gbps FC"
+            + (f", {exhaust} exhaust" if exhaust else "")
+        )
+
+    _total_switches = sum(sw.get("qty", 1) for sw in san_switches)
+    _switch_noun    = "switch" if _total_switches == 1 else "switches"
+    _sw_list_str    = "; ".join(_sw_lines)
+
+    # Detect support info
+    _sup_info  = next((sw.get("support_info") for sw in san_switches if sw.get("support_info")), None) or {}
+    _sup_name  = _sup_info.get("name", "IBM Storage Expert Care")
+    _sup_years = _sup_info.get("years", 5)
+    _sup_fix   = _sup_info.get("fix_time_hours", "")
+    _sup_str   = f" providing {_sup_fix}" if _sup_fix else ""
+
+    body = (
+        f"The proposed solution {client_str}consists of {_total_switches} IBM Storage Networking "
+        f"b-type Fibre Channel {_switch_noun}: {_sw_list_str}.\n\n"
+        f"IBM Storage Networking b-type switches (Brocade OEM) provide a proven, high-performance "
+        f"Fibre Channel SAN fabric designed for enterprise storage environments. "
+        f"They support industry-standard FC protocols at up to {max(sw.get('port_speed_gbps', 0) for sw in san_switches)} Gbps per port, "
+        f"enabling high-throughput, low-latency connectivity between servers and storage arrays. "
+        f"The switches deliver non-disruptive port activation, zoning, and fabric-level diagnostics "
+        f"through the Brocade Fabric OS (FOS), and are fully supported by the IBM Storage Expert Care "
+        f"programme.\n\n"
+        f"The solution is covered by {_sup_name} ({_sup_years}-year term){_sup_str}."
+    )
+
+    p = doc.add_paragraph(body)
+    p.style.font.size = Pt(10)
+    _para_space(p, before=0, after=12)
+    for run in p.runs:
+        run.font.size = Pt(10)
+        run.font.color.rgb = IBM_DARK
+
+    # Key highlights
+    hl_p = doc.add_paragraph()
+    run = hl_p.add_run(T["key_highlights"])
+    run.font.bold = True
+    run.font.size = Pt(10)
+    run.font.color.rgb = IBM_BLUE
+    _para_space(hl_p, before=6, after=2)
+
+    _highlights = [
+        "Up to 64 Gbps per-port Fibre Channel — supports 8/16/32/64 Gbps auto-negotiation for seamless connectivity with legacy and next-generation HBAs",
+        "Non-disruptive port activation — expand active port count without taking the switch offline, enabling zero-downtime growth",
+        "Advanced zoning and fabric services — fine-grained access control with hardware-enforced zoning, Name Server, and Fabric Watch",
+        "Brocade Fabric OS (FOS) — enterprise-grade SAN operating system with FICON support, D-Port diagnostics, and REST API management",
+        "IBM Storage Expert Care support — 24×7 hardware support with committed fix-time SLA",
+    ]
+    for hl in _highlights:
+        bp = doc.add_paragraph(style="List Bullet")
+        run = bp.add_run(hl)
+        run.font.size = Pt(10)
+        run.font.color.rgb = IBM_DARK
+        _para_space(bp, before=0, after=1)
+
+
+def _add_san_config_table(doc, san_switches: list, T):
+    """Configuration table for SAN switches."""
+    _add_section_heading(doc, T["sec_config"])
+
+    # Deduplicate by switch_short
+    _sw_groups: dict[str, dict] = {}
+    for sw in san_switches:
+        k = sw.get("switch_short", sw.get("model_code", ""))
+        if k not in _sw_groups:
+            _sw_groups[k] = dict(sw)
+        else:
+            _sw_groups[k]["qty"] = _sw_groups[k].get("qty", 1) + sw.get("qty", 1)
+
+    for sw in _sw_groups.values():
+        qty          = sw.get("qty", 1)
+        short        = sw.get("switch_short", "")
+        name         = sw.get("switch_name", short)
+        model_code   = sw.get("model_code", "")
+        brocade      = sw.get("brocade_model", "")
+        form_factor  = sw.get("form_factor", "")
+        exhaust      = sw.get("exhaust", "")
+        active_ports = sw.get("active_ports", 0)
+        max_ports    = sw.get("max_ports", 0)
+        speed        = sw.get("port_speed_gbps", 0)
+        lw_qty       = sw.get("lw_optics_qty", 0)
+        sw_qty_val   = sw.get("sw_optics_qty", 0)
+        sannav       = sw.get("sannav_licenses", [])
+
+        # Sub-heading per switch group
+        sh_p = doc.add_paragraph()
+        _para_space(sh_p, before=6 if list(_sw_groups.keys()).index(list(_sw_groups.keys())[list(_sw_groups.values()).index(sw)]) > 0 else 0, after=2)
+        shr = sh_p.add_run(f"{qty} × {name}" if qty > 1 else name)
+        shr.font.bold = True
+        shr.font.size = Pt(10)
+        shr.font.color.rgb = IBM_DARK
+
+        rows = [
+            ("Model (IBM)",    name),
+            ("MTM",            model_code),
+            ("OEM Platform",   brocade or "—"),
+            ("Form Factor",    f"{form_factor} rack-mountable"),
+            ("Airflow",        f"{exhaust} exhaust" if exhaust else "—"),
+            ("Quantity",       str(qty)),
+            ("Active Ports",   f"{active_ports} ports licensed"),
+            ("Max Port Count", f"{max_ports} ports total"),
+            ("Port Speed",     f"up to {speed} Gbps FC per port"),
+            ("LW SFP Optics",  f"{lw_qty} × long-wave SFP (10 km)" if lw_qty else "—"),
+            ("SW/OM3 Cables",  f"{sw_qty_val} × OM3 LC cable" if sw_qty_val else "—"),
+            ("SANnav Software","; ".join(f"{s.get('description','')} ({s.get('years','')}Y)" for s in sannav) if sannav else "—"),
+        ]
+        _make_two_col_table(doc, rows)
+
+
+def _add_san_supplement(doc, san_switches: list, T):
+    """Compact SAN section appended to FlashSystem Exec Summary."""
+    _add_section_heading(doc, "SAN Fabric — Storage Networking")
+
+    # Deduplicate by switch_short
+    _sw_groups: dict[str, dict] = {}
+    for sw in san_switches:
+        k = sw.get("switch_short", sw.get("model_code", ""))
+        if k not in _sw_groups:
+            _sw_groups[k] = dict(sw)
+        else:
+            _sw_groups[k]["qty"] = _sw_groups[k].get("qty", 1) + sw.get("qty", 1)
+
+    _total = sum(sw.get("qty", 1) for sw in san_switches)
+    _sw_noun = "switch" if _total == 1 else "switches"
+    _sw_desc_parts = []
+    for sw in _sw_groups.values():
+        qty    = sw.get("qty", 1)
+        short  = sw.get("switch_short", "")
+        active = sw.get("active_ports", 0)
+        speed  = sw.get("port_speed_gbps", 0)
+        _sw_desc_parts.append(
+            f"{qty} × {short} — {active} active ports at {speed} Gbps FC"
+        )
+
+    # Detect support info
+    _sup_info  = next((sw.get("support_info") for sw in san_switches if sw.get("support_info")), None) or {}
+    _sup_name  = _sup_info.get("name", "IBM Storage Expert Care")
+    _sup_years = _sup_info.get("years", 5)
+
+    # SANnav software (any switch that has it)
+    _sannav_all: list = []
+    for sw in san_switches:
+        for lic in sw.get("sannav_licenses", []):
+            if not any(x.get("description") == lic.get("description") for x in _sannav_all):
+                _sannav_all.append(lic)
+
+    _sw_desc_str = "; ".join(_sw_desc_parts)
+
+    intro_p = doc.add_paragraph(
+        f"The solution includes {_total} IBM Storage Networking b-type Fibre Channel {_sw_noun}: "
+        + _sw_desc_str
+        + ". "
+        "These switches provide the SAN fabric interconnect between the FlashSystem storage array "
+        "and host servers, delivering low-latency, high-throughput FC connectivity with "
+        "non-disruptive port activation and enterprise-grade zoning. "
+        f"Hardware support is provided by {_sup_name} ({_sup_years}-year term)."
+        + (
+            " Software management is augmented by " +
+            ", ".join(f"{x.get('description','')} ({x.get('years','')}Y)" for x in _sannav_all) + "."
+            if _sannav_all else ""
+        )
+    )
+    _para_space(intro_p, before=0, after=8)
+    for run in intro_p.runs:
+        run.font.size = Pt(10)
+        run.font.color.rgb = IBM_DARK
+
+    # Key highlights (same bullet-point style as SAN-only executive text)
+    hl_p = doc.add_paragraph()
+    hl_run = hl_p.add_run(T.get("key_highlights", "Key Highlights"))
+    hl_run.font.bold = True
+    hl_run.font.size = Pt(10)
+    hl_run.font.color.rgb = IBM_BLUE
+    _para_space(hl_p, before=6, after=2)
+
+    _highlights = [
+        "Up to 64 Gbps per-port Fibre Channel — supports 8/16/32/64 Gbps auto-negotiation for seamless connectivity with legacy and next-generation HBAs",
+        "Non-disruptive port activation — expand active port count without taking the switch offline, enabling zero-downtime SAN growth aligned to FlashSystem scale-up",
+        "Advanced zoning and fabric services — hardware-enforced zoning, Name Server, and Fabric Watch for granular access control",
+        "Brocade Fabric OS (FOS) — enterprise-grade SAN operating system with FICON support, D-Port diagnostics, and REST API management",
+        "FC-NVMe ready — supports NVMe over Fibre Channel for ultra-low-latency host connectivity to FlashSystem NVMe media",
+        "IBM Storage Expert Care support — 24×7 hardware support with committed fix-time SLA, unified with FlashSystem coverage",
+    ]
+    for hl in _highlights:
+        bp = doc.add_paragraph(style="List Bullet")
+        brun = bp.add_run(hl)
+        brun.font.size = Pt(10)
+        brun.font.color.rgb = IBM_DARK
+        _para_space(bp, before=0, after=1)
+
+    _para_space(doc.add_paragraph(), before=0, after=4)
+
+    # Table — IBM Blue header + zebra rows (same style as FS tables)
+    col_headers = ("Switch Model", "MTM", "Active / Max Ports", "Port Speed", "Airflow", "LW Optics", "SW Cables")
+    data_rows = []
+    for sw in _sw_groups.values():
+        qty     = sw.get("qty", 1)
+        lw_qty  = sw.get("lw_optics_qty", 0)
+        swc_qty = sw.get("sw_optics_qty", 0)
+        data_rows.append((
+            f"{qty} × {sw.get('switch_short', '')}" if qty > 1 else sw.get("switch_short", ""),
+            sw.get("model_code", "—"),
+            f"{sw.get('active_ports', 0)} / {sw.get('max_ports', 0)}",
+            f"{sw.get('port_speed_gbps', 0)} Gbps FC",
+            f"{sw.get('exhaust', '—')} exhaust" if sw.get("exhaust") else "—",
+            f"{lw_qty} × LW SFP" if lw_qty else "—",
+            f"{swc_qty} × OM3 cable" if swc_qty else "—",
+        ))
+
+    if data_rows:
+        tbl = doc.add_table(rows=0, cols=len(col_headers))
+        tbl.style = "Table Grid"
+        tbl.alignment = WD_TABLE_ALIGNMENT.LEFT
+        # Header row — IBM Blue background
+        hdr_row = tbl.add_row()
+        for ci, h in enumerate(col_headers):
+            _set_cell_bg(hdr_row.cells[ci], IBM_BLUE)
+            _set_cell_text(hdr_row.cells[ci], h, bold=True, color=IBM_WHITE, size=9)
+        # Data rows — zebra stripe
+        for ri, row_data in enumerate(data_rows):
+            dr = tbl.add_row()
+            bg = RGBColor(0xF4, 0xF4, 0xF4) if ri % 2 == 0 else IBM_WHITE
+            for ci, cell_text in enumerate(row_data):
+                _set_cell_bg(dr.cells[ci], bg)
+                _set_cell_text(dr.cells[ci], cell_text, size=9)
+        _para_space_after_table(doc)
 
 
 # ---------------------------------------------------------------------------
@@ -1606,13 +2018,18 @@ def _para_space_after_table(doc):
     _para_space(p, before=0, after=4)
 
 
-def _set_cell_bg(cell, color: RGBColor):
+def _set_cell_bg(cell, color):
+    """Accept RGBColor or 6-char hex string."""
+    if isinstance(color, str):
+        hex_color = color.upper().lstrip("#")
+    else:
+        hex_color = f"{color[0]:02X}{color[1]:02X}{color[2]:02X}"
     tc = cell._tc
     tcPr = tc.get_or_add_tcPr()
     shd = OxmlElement("w:shd")
     shd.set(qn("w:val"), "clear")
     shd.set(qn("w:color"), "auto")
-    shd.set(qn("w:fill"), str(color))
+    shd.set(qn("w:fill"), hex_color)
     tcPr.append(shd)
 
 

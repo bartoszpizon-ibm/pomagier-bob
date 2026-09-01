@@ -339,14 +339,15 @@ def _parse_econfig_csv(source) -> dict[str, Any]:
             # Base model: first numeric product code (e.g. 5127-A20, 5078-A40)
             # Must be in HARDWARE section; skip known non-model prefixes
             if re.match(r"^\d{4}-\w+$", product) and not result["model_code"] and section == "hardware":
-                # Exclude known support/software product prefixes
-                if not re.match(r"^(5132|5076|5079|5080|5081|5203|5608|5775)-", product):
+                # Exclude known support/software product prefixes AND SAN switches (8969-xxx)
+                if not re.match(r"^(5132|5076|5079|5080|5081|5203|5608|5775|8969|8999|9474|8883)-", product):
                     result["model_code"] = product
 
             # Support product — various prefixes depending on model family:
             # 5132-xxx (FS5x00), 5076-xxx (FS7600), 5079-xxx (FS9600), 5080-xxx, 5081-xxx
             # 5203-xxx (FSC200 Expert Care), 4690-xxx (FS5045/FS5015 Expert Care)
-            if re.match(r"^(5132|5076|5079|5080|5081|5203|4690)-", product) and section == "hardware":
+            # 8999-xxx / 9474-xxx / 8883-xxx = SAN b-type Expert Care
+            if re.match(r"^(5132|5076|5079|5080|5081|5203|4690|8999|9474|8883)-", product) and section == "hardware":
                 result["list_price_support"] = price
                 continue
 

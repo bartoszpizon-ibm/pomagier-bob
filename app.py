@@ -1,14 +1,20 @@
 """
-Pomagier Bob — Streamlit UI
+Ace of Sales — Infrastructure Sales Assistant · Streamlit UI
 IBM Storage Sales Project Centre
 """
 
 from __future__ import annotations
-import json, re, sys, random
-from datetime import date, timedelta
+import copy
+import io
+import json
+import re
+import sys
+import random
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import streamlit as st
+import streamlit.components.v1 as _components
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -21,14 +27,13 @@ from app.generators.special_bid_generator import generate_special_bid
 from app.generators.scale_exec_summary import generate_scale_exec_summary
 from app.generators.scale_rfp_generator import generate_scale_rfp
 from app.generators.scale_special_bid_generator import generate_scale_special_bid
-import importlib
-import app.generators.bid_justification as _bj_module
-importlib.reload(_bj_module)
 from app.generators.bid_justification import generate_bj, ollama_status
-from app.knowledge.product_db import get_model_info, get_docs
+from app.parsers.san_parser import parse_san_csv, has_san_switches
+from app.knowledge.product_db import get_model_info, get_docs, get_san_switch_info
+from app.generators.san_rfp_generator import generate_san_rfp
 
 # ─────────────────────────────────────────────────────────────────────────────
-st.set_page_config(page_title="IBM Pomagier Bob", page_icon="👷🏻‍♂️",
+st.set_page_config(page_title="Ace of Sales", page_icon="♠",
                    layout="wide", initial_sidebar_state="collapsed")
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -126,8 +131,8 @@ p, li { color: var(--gray-100) !important; font-size: 16px !important; line-heig
   letter-spacing: 0.01em; font-family: 'IBM Plex Sans', sans-serif;
   white-space: nowrap; padding-right: 8px;
 }
-/* "Pomagier Bob" — brighter, clearly legible */
-.ibm-nav-brand span { color: #78a9ff; margin-left: 6px; font-weight: 400; }
+/* "Bolt" suffix — white, same weight as IBM */
+.ibm-nav-brand span { color: #ffffff; margin-left: 6px; font-weight: 600; }
 /* separator between brand and page links */
 .ibm-nav-sep {
   width: 1px; height: 20px; background: #525252;
@@ -186,6 +191,29 @@ p, li { color: var(--gray-100) !important; font-size: 16px !important; line-heig
 .ibm-hero-sub { font-size: 16px; color: var(--gray-70);
                 max-width: 640px; line-height: 1.6;
                 font-family: 'IBM Plex Sans', sans-serif; }
+.ibm-hero-steps {
+  display: flex; align-items: stretch; justify-content: center;
+  gap: 0; margin-top: 28px; flex-wrap: wrap;
+}
+.ibm-hero-step {
+  display: flex; align-items: center; gap: 16px;
+  background: var(--white); border: 1px solid var(--gray-20);
+  border-radius: 4px; padding: 18px 24px;
+  flex: 1; min-width: 210px; max-width: 300px;
+}
+.ibm-hero-step-num {
+  width: 36px; height: 36px; border-radius: 50%;
+  background: var(--blue-60); color: #fff;
+  font-size: 16px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.ibm-hero-step-title { font-size: 14px; font-weight: 600; color: var(--gray-100); margin-bottom: 3px; }
+.ibm-hero-step-sub   { font-size: 11.5px; color: var(--gray-70); line-height: 1.45; }
+.ibm-hero-step-arrow {
+  font-size: 22px; color: var(--gray-30);
+  padding: 0 12px; flex-shrink: 0; align-self: center;
+}
 
 /* ── Step indicator ─────────────────────────────────────────────────────── */
 .ibm-steps {
@@ -767,6 +795,7 @@ body [data-baseweb="datepicker"] [data-baseweb="select"] div {
   border-radius: 2px !important;
   margin-bottom: 0 !important;
   text-align: left !important;
+  transition: background .2s, color .2s, border-color .2s;
 }
 .upload-step-badge.required {
   background: #dde9ff !important;
@@ -778,6 +807,12 @@ body [data-baseweb="datepicker"] [data-baseweb="select"] div {
   color: #525252 !important;
   border: 1.5px solid #c6c6c6 !important;
 }
+/* Uploaded state — green background */
+.upload-step-badge.uploaded {
+  background: #defbe6 !important;
+  color: #198038 !important;
+  border: 1.5px solid #24a148 !important;
+}
 .upload-step-num {
   font-size: 11px !important;
   font-weight: 600 !important;
@@ -785,6 +820,9 @@ body [data-baseweb="datepicker"] [data-baseweb="select"] div {
   text-transform: uppercase !important;
   letter-spacing: 0.08em !important;
   margin-bottom: 3px !important;
+}
+.upload-step-num.uploaded {
+  color: #198038 !important;
 }
 
 /* ── Slider ──────────────────────────────────────────────────────────────── */
@@ -854,7 +892,15 @@ COMPETITORS_STORAGE = [
     "HPE Alletra / Nimble",
     "Hitachi VSP",
     "Huawei OceanStor",
-    "Inny (opisz poniżej)",
+    "Other (describe below)",
+]
+
+COMPETITORS_SAN = [
+    "Cisco MDS (Nexus)",
+    "HPE SN Switch (OEM Brocade)",
+    "Dell PowerSwitch FC (OEM Brocade)",
+    "Arista / other FC vendor",
+    "Other (describe below)",
 ]
 
 # Powody extended bid validity (> 30 dni od dziś)
@@ -875,6 +921,10 @@ DEAL_TYPES: list[tuple[str,str,str]] = [
     ("— wybierz —",
      "— wybierz —",
      ""),
+    ("san_refresh",
+     "Refresh of SAN infrastructure for critical workloads",
+     "Fibre Channel SAN fabric refresh replacing end-of-support b-type switches, "
+     "requiring non-disruptive migration, 32/64 Gbps port density, and IBM Storage Expert Care support"),
     ("new_database",
      "New storage for critical database workloads",
      "high-performance all-flash storage for critical database workloads (Oracle, SAP HANA, MS SQL), "
@@ -1102,6 +1152,34 @@ _BACKGROUND_VARIANTS: dict[str, list[str]] = {
         "with competing pure-NAS proposals (Dell EMC PowerScale, Qumulo) that include bundled "
         "media workflow software at no additional cost.",
     ],
+    "san_refresh": [
+        # Competitive FC SAN refresh
+        "Deal type: SAN infrastructure refresh — end-of-support Fibre Channel fabric replacement. "
+        "{client} is operating Brocade b-type SAN switches that have reached or are approaching "
+        "end-of-support. The customer requires a non-disruptive migration path to 32/64 Gbps FC, "
+        "ensuring continued compatibility with existing FlashSystem / DS8000 storage. "
+        "IBM {mname} (Brocade OEM) provides native ISL trunking, FICON support, and direct integration "
+        "with IBM Storage Expert Care. "
+        "Special Bid pricing is required to match Cisco MDS competitive proposals, which have been "
+        "submitted at significantly below list price for this refresh opportunity.",
+
+        # Greenfield SAN — no prior IBM FC footprint
+        "Deal type: Net-new SAN fabric deployment — greenfield Fibre Channel connectivity. "
+        "{client} is deploying an all-flash storage infrastructure ({mname}) and requires a "
+        "dedicated FC SAN fabric to connect host servers to storage. The customer evaluated Cisco MDS "
+        "and HPE SN switches; IBM b-type SAN switches were selected for native IBM stack integration "
+        "and single-vendor support. "
+        "Exception pricing is required to align the total solution cost (FlashSystem + SAN) with "
+        "competing all-in-one proposals from Dell and HPE.",
+
+        # SAN consolidation / upgrade — 16G to 64G
+        "Deal type: SAN upgrade — Fibre Channel speed uplift from 16 Gb to 32/64 Gb. "
+        "{client} is consolidating SAN fabrics across multiple data centres and upgrading "
+        "to 64 Gbps FC to support NVMe-oF workloads and eliminate I/O bottlenecks. "
+        "IBM {mname} with {sup_name} support was selected after a formal evaluation; "
+        "the requested discount is required to remain competitive against Cisco MDS 9300 series, "
+        "which has been aggressively priced in this account.",
+    ],
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1152,9 +1230,9 @@ def _list_saved_projects():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Session state
+# Session state defaults
 # ─────────────────────────────────────────────────────────────────────────────
-for k, v in {
+_SESSION_DEFAULTS: dict = {
     "nav_page": "sales",             # "sales" | "bj"
     "product_line": "flashsystem",   # "flashsystem" | "scale" | "fusion" | "power"
     "project_loaded": False, "project_data": {},
@@ -1186,9 +1264,38 @@ for k, v in {
     "bid_client_budget": "",
     "bid_ref_sbo_c": "",
     "bid_validity_reason": "",
-}.items():
+}
+
+def _reset_session() -> None:
+    """Clear all project & form state, restoring defaults. Called on logo click or new config."""
+    # Keys to preserve across reset
+    _keep = {"nav_page", "product_line", "exec_lang", "rfp_lang"}
+    for k, v in _SESSION_DEFAULTS.items():
+        if k not in _keep:
+            st.session_state[k] = v
+    # Also clear derived/input widget shadow keys that Streamlit caches
+    for _shadow in [
+        "num_systems_input", "disc_num", "disc_slider", "mep_input", "mep_text_input",
+        "due_date_input", "eu_margin_pct_input", "bid_budget_text",
+        "_prev_deal_type_for_bg", "_bj_prev_sig",
+        "sel_deal_type",   # selectbox widget key — must be cleared so index picks up new deal_type
+    ]:
+        st.session_state.pop(_shadow, None)
+    # Clear all bg-variant index keys
+    for k in list(st.session_state.keys()):
+        if k.startswith("_bg_variant_idx_"):
+            del st.session_state[k]
+
+# Apply defaults on first load
+for k, v in _SESSION_DEFAULTS.items():
     if k not in st.session_state:
         st.session_state[k] = v
+
+# Handle ?reset=1 query param (triggered by logo link)
+if st.query_params.get("reset") == "1":
+    _reset_session()
+    st.query_params.clear()
+    st.rerun()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1203,14 +1310,36 @@ _nav_docs       = get_docs(_nav_short) if _nav_short else {}
 _nav_docs_url   = _nav_docs.get("docs_url", "")
 _nav_sm_url     = _nav_docs.get("sales_manual_url", "")
 
-if _nav_docs_url:
-    _doc_links = (
-        f'<div class="ibm-nav-doc-group">'
-        f'<span class="ibm-nav-doc-label">Documentation for {_nav_name}</span>'
-        f'<a class="ibm-nav-link" href="{_nav_docs_url}" target="_blank" rel="noopener">IBM Docs ↗</a>'
-        f'<a class="ibm-nav-link" href="{_nav_sm_url}" target="_blank" rel="noopener">IBM Sales Manual ↗</a>'
-        f'</div>'
-    )
+# SAN switches docs — collect unique switch models from loaded project
+_nav_san_switches = (st.session_state.get("project_data") or {}).get("san_switches", [])
+_nav_san_seen: set[str] = set()
+_nav_san_links_html = ""
+for _nssw in _nav_san_switches:
+    _ns_short = _nssw.get("switch_short", "")
+    if _ns_short and _ns_short not in _nav_san_seen:
+        _nav_san_seen.add(_ns_short)
+        _ns_docs = get_docs(_ns_short)
+        _ns_docs_url = _ns_docs.get("docs_url", "")
+        _ns_sm_url   = _ns_docs.get("sales_manual_url", "")
+        if _ns_docs_url or _ns_sm_url:
+            _nav_san_links_html += f'<span class="ibm-nav-doc-label">Docs for {_ns_short}</span>'
+            if _ns_docs_url:
+                _nav_san_links_html += f'<a class="ibm-nav-link" href="{_ns_docs_url}" target="_blank" rel="noopener">IBM Docs ↗</a>'
+            if _ns_sm_url:
+                _nav_san_links_html += f'<a class="ibm-nav-link" href="{_ns_sm_url}" target="_blank" rel="noopener">Sales Manual ↗</a>'
+
+if _nav_docs_url or _nav_san_links_html:
+    _doc_links = '<div class="ibm-nav-doc-group">'
+    if _nav_docs_url:
+        # Build short label: "FS7600" from "IBM FlashSystem 7600", "SAN64B-7" already short
+        _nav_short_label = _nav_short if _nav_short else _nav_name
+        _doc_links += (
+            f'<span class="ibm-nav-doc-label">Docs for {_nav_short_label}</span>'
+            f'<a class="ibm-nav-link" href="{_nav_docs_url}" target="_blank" rel="noopener">IBM Docs ↗</a>'
+            f'<a class="ibm-nav-link" href="{_nav_sm_url}" target="_blank" rel="noopener">Sales Manual ↗</a>'
+        )
+    _doc_links += _nav_san_links_html
+    _doc_links += '</div>'
 else:
     _doc_links = '<a class="ibm-nav-link ibm-nav-link-muted" href="#">Documentation — load a config first</a>'
 
@@ -1235,7 +1364,7 @@ _nav_bj_cls    = "ibm-nav-link active" if _nav_page == "bj"    else "ibm-nav-lin
 st.markdown(
     f'<div class="ibm-nav">'
     f'  <div class="ibm-nav-left">'
-    f'    <div class="ibm-nav-brand">IBM <span>Pomagier Bob</span></div>'
+    f'    <a class="ibm-nav-brand" href="?reset=1" style="text-decoration:none;cursor:pointer" title="New configuration — reset app">IBM <span>Ace of Sales</span></a>'
     f'    <div class="ibm-nav-sep"></div>'
     f'    <div class="ibm-nav-links">'
     f'      <a class="{_nav_sales_cls}" href="?p=sales">Sales Centre</a>'
@@ -1312,9 +1441,8 @@ if _nav_page == "bj":
                     label_visibility="collapsed",
                 )
                 if _bid_file:
-                    import io as _io
                     try:
-                        _bid_data = parse_bid_docx(_io.BytesIO(_bid_file.read()))
+                        _bid_data = parse_bid_docx(io.BytesIO(_bid_file.read()))
                         st.session_state["bj_bid_data"] = _bid_data
                         # sync currency + price from doc if file changed
                         if st.session_state.get("_bj_last_file") != _bid_file.name:
@@ -1542,7 +1670,6 @@ if _nav_page == "bj":
                     st.rerun()
             with _bj_r2:
                 # Copy button via JS clipboard API injected into an iframe
-                import streamlit.components.v1 as _components
                 _escaped = _bj_result.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
                 _components.html(
                     f"""<button onclick="navigator.clipboard.writeText(`{_escaped}`).then(()=>{{
@@ -1575,36 +1702,34 @@ def step_cls(done, active):
     if active: return "active"
     return ""
 
-s1 = step_cls(step1_done, True)
-s2 = step_cls(step2_done, step1_done)
-s3 = step_cls(step3_done, step2_done)
-
-st.markdown(f"""
-<div class="ibm-steps">
-  <div class="ibm-step {s1}">
-    <div class="ibm-step-num">{'✓' if step1_done else '1'}</div>
-    Upload &amp; Parse Files
-  </div>
-  <span class="ibm-step-sep">›</span>
-  <div class="ibm-step {s2}">
-    <div class="ibm-step-num">{'✓' if step2_done else '2'}</div>
-    Project Details
-  </div>
-  <span class="ibm-step-sep">›</span>
-  <div class="ibm-step {s3}">
-    <div class="ibm-step-num">{'✓' if step3_done else '3'}</div>
-    Generate Documents
-  </div>
-</div>
-""", unsafe_allow_html=True)
-
 st.markdown("""
 <div class="ibm-hero">
   <div class="ibm-hero-eyebrow">IBM Storage · Sales Automation</div>
-  <h1 class="ibm-hero">Sales Project Centre</h1>
-  <div class="ibm-hero-sub">
-    Upload an IBM e&#8209;config CSV and Storage Modeller XLSX — instantly generate
-    an Executive Summary, Technical RFP/RFI, and Special Bid questionnaire.
+  <h1 class="ibm-hero">Ace of Sales — Infrastructure Sales Assistant</h1>
+  <div class="ibm-hero-steps">
+    <div class="ibm-hero-step">
+      <span class="ibm-hero-step-num">1</span>
+      <div>
+        <div class="ibm-hero-step-title">Upload e-config CSV</div>
+        <div class="ibm-hero-step-sub">FlashSystem · SAN b-type · Storage Scale</div>
+      </div>
+    </div>
+    <div class="ibm-hero-step-arrow">→</div>
+    <div class="ibm-hero-step">
+      <span class="ibm-hero-step-num">2</span>
+      <div>
+        <div class="ibm-hero-step-title">Add Project Details</div>
+        <div class="ibm-hero-step-sub">Client · deal type · discount</div>
+      </div>
+    </div>
+    <div class="ibm-hero-step-arrow">→</div>
+    <div class="ibm-hero-step">
+      <span class="ibm-hero-step-num">3</span>
+      <div>
+        <div class="ibm-hero-step-title">Generate Documents</div>
+        <div class="ibm-hero-step-sub">Exec Summary · RFP/RFI · Special Bid</div>
+      </div>
+    </div>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -1617,10 +1742,10 @@ with main:
     # PRODUCT LINE SELECTOR
     # =========================================================================
     _LINE_OPTIONS = {
-        "flashsystem": ("⚡", "FlashSystem",     "All-NVMe block storage (FS5600 · FS7600 · FS9600 · …)"),
-        "scale":       ("🗂️", "Storage Scale",   "Parallel file storage for AI & HPC (Scale 3500 · 6000)"),
-        "fusion":      ("☁️", "Storage Fusion",  "Coming soon — hybrid cloud storage orchestration"),
-        "power":       ("🖥️", "Power Server",    "Coming soon — IBM Power10 compute"),
+        "flashsystem": ("⚡", "FlashSystem + SAN", "All-NVMe block storage (FS5600 · FS7600 · FS9600 · …) + SAN b-type switches"),
+        "scale":       ("🗂️", "Storage Scale",     "Parallel file storage for AI & HPC (Scale 3500 · 6000)"),
+        "fusion":      ("☁️", "Storage Fusion",    "Coming soon — hybrid cloud storage orchestration"),
+        "power":       ("🖥️", "Power Server",      "Coming soon — IBM Power10 compute"),
     }
 
     st.markdown("""
@@ -1681,82 +1806,85 @@ with main:
         "padding-bottom:0 !important;"
     )
 
+    # Helper: build badge HTML — green when file already uploaded
+    def _upload_badge(step_label: str, badge_text: str, base_cls: str, file_obj) -> str:
+        done = file_obj is not None
+        num_cls   = "upload-step-num uploaded"   if done else "upload-step-num"
+        badge_cls = f"upload-step-badge uploaded" if done else f"upload-step-badge {base_cls}"
+        prefix    = "✓ &nbsp;" if done else ""
+        return (
+            f'<div style="{_badge_wrap}">'
+            f'<div class="{num_cls}">{step_label}</div>'
+            f'<div class="{badge_cls}">{prefix}{badge_text}</div>'
+            f'</div>'
+        )
+
     if _is_scale:
         # Scale: 2 files — CSV + single combined Capacity & Performance XLSX
         u1, u2 = st.columns([1, 1], gap="large")
         with u1:
-            st.markdown(
-                f'<div style="{_badge_wrap}">'
-                '<div class="upload-step-num">Step 1 of 2</div>'
-                '<div class="upload-step-badge required">ECONFIG &nbsp;·&nbsp; Configuration in CSV</div>'
-                '</div>',
-                unsafe_allow_html=True,
-            )
             csv_file = st.file_uploader(
-                "e-config CSV",
+                "Upload e-config CSV",
                 type=["csv"], key="scale_csv_upload",
                 help="IBM e-config Cloud → Export CSV (multi-system ESS file)",
                 label_visibility="collapsed",
             )
-        with u2:
             st.markdown(
-                f'<div style="{_badge_wrap}">'
-                '<div class="upload-step-num">Step 2 of 2</div>'
-                '<div class="upload-step-badge required">STORAGE MODELLER &nbsp;·&nbsp; CAPACITY + PERFORMANCE</div>'
-                '</div>',
+                _upload_badge("Step 1 of 2", "Upload e-config CSV",
+                              "required", csv_file),
                 unsafe_allow_html=True,
             )
+        with u2:
             capacity_file = st.file_uploader(
-                "Storage Modeller — Capacity & Performance XLSX",
+                "StorM Capacity & Performance Report",
                 type=["xlsx"], key="scale_capacity_upload",
                 help="ESS Storage Modeller combined Capacity & Performance report",
                 label_visibility="collapsed",
+            )
+            st.markdown(
+                _upload_badge("Step 2 of 2", "StorM Capacity &amp; Performance Report",
+                              "required", capacity_file),
+                unsafe_allow_html=True,
             )
         perf_file = None  # included in capacity XLSX for Scale
     else:
         # FlashSystem: CSV required + 2 optional XLSX
         u1, u2, u3 = st.columns([1, 1, 1], gap="large")
         with u1:
-            st.markdown(
-                f'<div style="{_badge_wrap}">'
-                '<div class="upload-step-num">Required</div>'
-                '<div class="upload-step-badge required">ECONFIG &nbsp;·&nbsp; Configuration CSV</div>'
-                '</div>',
-                unsafe_allow_html=True,
-            )
             csv_file = st.file_uploader(
-                "e-config CSV",
+                "Upload e-config CSV",
                 type=["csv"], key="fs_csv_upload",
                 help="IBM e-config Cloud → Export CSV",
                 label_visibility="collapsed",
             )
-        with u2:
             st.markdown(
-                f'<div style="{_badge_wrap}">'
-                '<div class="upload-step-num">Optional</div>'
-                '<div class="upload-step-badge optional">STORAGE MODELLER &nbsp;·&nbsp; CAPACITY</div>'
-                '</div>',
+                _upload_badge("Required", "Upload e-config CSV",
+                              "required", csv_file),
                 unsafe_allow_html=True,
             )
+        with u2:
             capacity_file = st.file_uploader(
-                "Storage Modeller — Capacity XLSX",
+                "StorM Capacity Report",
                 type=["xlsx"], key="fs_capacity_upload",
                 help="Adds exact usable capacity, RAID type, cache. Not required for Special Bid.",
                 label_visibility="collapsed",
             )
-        with u3:
             st.markdown(
-                f'<div style="{_badge_wrap}">'
-                '<div class="upload-step-num">Optional</div>'
-                '<div class="upload-step-badge optional">STORAGE MODELLER &nbsp;·&nbsp; PERFORMANCE</div>'
-                '</div>',
+                _upload_badge("Optional", "StorM Capacity Report",
+                              "optional", capacity_file),
                 unsafe_allow_html=True,
             )
+        with u3:
             perf_file = st.file_uploader(
-                "Storage Modeller — Performance XLSX",
+                "StorM Performance Report",
                 type=["xlsx"], key="fs_perf_upload",
                 help="Adds IOPS/latency data for Exec Summary and RFP. Not required for Special Bid.",
                 label_visibility="collapsed",
+            )
+            st.markdown(
+                _upload_badge("Optional", "StorM Performance Report",
+                              "optional", perf_file),
+                unsafe_allow_html=True,
             )
 
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
@@ -1780,27 +1908,64 @@ with main:
         )
 
     if parse_clicked:
+        # Reset all project-specific state before loading new config
+        _reset_session()
         with st.spinner("Parsing configuration files…"):
             try:
-                import io as _io
-                _csv_buf  = _io.BytesIO(csv_file.read())   # type: ignore[union-attr]
+                _csv_buf  = io.BytesIO(csv_file.read())   # type: ignore[union-attr]
                 if st.session_state["product_line"] == "scale":
-                    _cap_buf  = _io.BytesIO(capacity_file.read())  # type: ignore[union-attr]
-                    _perf_buf = _io.BytesIO(perf_file.read()) if perf_file else None
+                    _cap_buf  = io.BytesIO(capacity_file.read())  # type: ignore[union-attr]
+                    _perf_buf = io.BytesIO(perf_file.read()) if perf_file else None
                     project = parse_scale_project(
                         _csv_buf, _cap_buf,
                         performance_xlsx_source=_perf_buf,
                     )
-                elif capacity_file is not None:
-                    _cap_buf  = _io.BytesIO(capacity_file.read())
-                    _perf_buf = _io.BytesIO(perf_file.read()) if perf_file else None
-                    project = parse_project(
-                        _csv_buf, _cap_buf,
-                        performance_xlsx_source=_perf_buf,
-                    )
+                    # Auto deal type for Scale — sync selectbox widget key too
+                    _scale_dt_label = next((d[1] for d in DEAL_TYPES if d[0] == "ai_gpu"), "ai_gpu")
+                    st.session_state["deal_type"]     = "ai_gpu"
+                    st.session_state["sel_deal_type"] = _scale_dt_label
                 else:
-                    # CSV-only path — no XLSX available
-                    project = parse_project_csv_only(_csv_buf)
+                    # FlashSystem + SAN path
+                    # Always try to parse SAN switches from the CSV
+                    _csv_buf.seek(0)
+                    _san_switches = parse_san_csv(_csv_buf)
+                    _csv_buf.seek(0)
+
+                    if capacity_file is not None:
+                        _cap_buf  = io.BytesIO(capacity_file.read())
+                        _perf_buf = io.BytesIO(perf_file.read()) if perf_file else None
+                        project = parse_project(
+                            _csv_buf, _cap_buf,
+                            performance_xlsx_source=_perf_buf,
+                        )
+                    else:
+                        # CSV-only path — no XLSX available
+                        project = parse_project_csv_only(_csv_buf)
+
+                    # Attach SAN switch data (may be empty list if no switches)
+                    project["san_switches"] = _san_switches
+
+                    # ── Auto-set deal type based on what was loaded ─────────────────
+                    _only_san = bool(_san_switches) and not bool(project.get("model_code", ""))
+                    def _set_deal_type(key: str) -> None:
+                        """Set both the state key and the selectbox widget key."""
+                        label = next((d[1] for d in DEAL_TYPES if d[0] == key), key)
+                        st.session_state["deal_type"]    = key
+                        st.session_state["sel_deal_type"] = label  # drives selectbox
+                    if _only_san:
+                        _set_deal_type("san_refresh")
+                    else:
+                        _set_deal_type("vmware_cloud")
+
+                    # ── Auto-set num_systems from SAN switch qty ────────────────────
+                    # For SAN-only: num_systems = total qty of all switches
+                    # For FS+SAN: keep num_systems = 1 (FS-based)
+                    if _only_san and _san_switches:
+                        _total_sw_qty = sum(sw.get("qty", 1) for sw in _san_switches)
+                        if _total_sw_qty > 1:
+                            st.session_state["num_systems"] = _total_sw_qty
+                            st.session_state["num_systems_input"] = _total_sw_qty
+
                 st.session_state["project_data"]   = project
                 st.session_state["project_loaded"] = True
                 st.rerun()
@@ -1868,7 +2033,7 @@ with main:
                     index=_dt_idx,
                     disabled=not loaded,
                     key="sel_deal_type",
-                    help="Wybór scenariusza automatycznie wypełnia teksty w Special Bid i Executive Summary",
+                    help="Selecting a scenario auto-fills texts in Special Bid and Executive Summary",
                 )
             )
         ]
@@ -1885,8 +2050,7 @@ with main:
         _dd_raw = st.session_state["due_date"]
         if isinstance(_dd_raw, str) and _dd_raw:
             try:
-                from datetime import datetime as _dt
-                _dd_raw = _dt.strptime(_dd_raw, "%d %b %Y").date()
+                _dd_raw = datetime.strptime(_dd_raw, "%d %b %Y").date()
             except ValueError:
                 _dd_raw = None
         if "due_date_input" not in st.session_state:
@@ -1951,8 +2115,25 @@ with main:
         ) if loaded else 0.0
         _ship_pd3  = _proj_pd3.get("shipping", 0) if loaded else 0.0
         _nsys_pd3  = int(st.session_state.get("num_systems", 1))
+        _curr_pd3  = _proj_pd3.get("currency", "EUR") if loaded else "EUR"
 
-        _curr_pd3 = _proj_pd3.get("currency", "EUR") if loaded else "EUR"
+        # Detect config type for MEP labelling
+        _pd3_san_switches = _proj_pd3.get("san_switches", []) if loaded else []
+        _pd3_has_fs       = bool(_proj_pd3.get("model_code", "")) if loaded else False
+        _pd3_san_only     = bool(_pd3_san_switches) and not _pd3_has_fs
+        _pd3_fs_and_san   = _pd3_has_fs and bool(_pd3_san_switches)
+
+        # Pre-compute SAN EU price for display (read-only, same discount_pct)
+        _pd3_san_eu = 0.0
+        if loaded and _pd3_san_switches:
+            _d_pd3 = float(st.session_state.get("discount_pct", 60.0))
+            for _sw_p in _pd3_san_switches:
+                _sw_p_lp  = (_sw_p.get("list_price_hw", 0)
+                           + _sw_p.get("list_price_sw", 0)
+                           + _sw_p.get("list_price_support", 0))
+                _sw_p_qty = _sw_p.get("qty", 1)
+                _sw_p_sh  = _sw_p.get("shipping", 0.0)
+                _pd3_san_eu += _sw_p_lp * _sw_p_qty * (1 - _d_pd3 / 100) + _sw_p_sh * _sw_p_qty
 
         # ── Callback helpers ─────────────────────────────────────────────────
         def _eu_from_disc(disc):
@@ -2018,8 +2199,14 @@ with main:
             st.session_state["mep_text_input"] = f"{int(val):,}".replace(",", " ")
 
         _mep_display = f"{int(st.session_state.get('mep_input', 0)):,}".replace(",", " ")
+        # MEP field label adapts to config type
+        _mep_label = (
+            f"Requested MEP — SAN ({_curr_pd3})"     if _pd3_san_only else
+            f"Requested MEP — FlashSystem ({_curr_pd3})" if _pd3_fs_and_san else
+            f"Requested MEP ({_curr_pd3})"
+        )
         st.text_input(
-            f"Requested MEP ({_curr_pd3})",
+            _mep_label,
             value=_mep_display,
             disabled=not loaded,
             help="Enter the requested MEP — Discount (%) updates automatically.",
@@ -2028,66 +2215,87 @@ with main:
             placeholder="0",
         )
 
-    # ── Systems / Discount / EU Margin — full-width row below Step 2 ─────────
-    _ns_col, _disc_col, _em_col, _pad_col = st.columns([1, 1, 1, 3], gap="small")
-    with _ns_col:
-        if "num_systems_input" not in st.session_state:
-            st.session_state["num_systems_input"] = int(st.session_state["num_systems"])
+        # For FS+SAN: show SAN EU price read-only below FS MEP
+        if loaded and _pd3_fs_and_san and _pd3_san_eu > 0:
+            st.markdown(
+                f'<div style="font-size:11px;color:var(--gray-70);margin:2px 0 6px;'
+                f'border-left:3px solid var(--blue-60);padding:4px 8px;background:#f0f5ff;">'
+                f'<b>SAN EU Price:</b> '
+                f'<span style="font-weight:600;color:var(--gray-100)">'
+                f'{_pd3_san_eu:,.0f} {_curr_pd3}</span>'
+                f'&nbsp;·&nbsp;{sum(sw.get("qty",1) for sw in _pd3_san_switches)}× switch(es)'
+                f'&nbsp;·&nbsp;same {float(st.session_state.get("discount_pct",60)):.1f}% discount'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
-        def _on_systems_change():
-            n = int(st.session_state["num_systems_input"])
-            st.session_state["num_systems"] = n
-            _proj_s  = st.session_state.get("project_data") or {}
-            _lp_s    = (_proj_s.get("list_price_hw", 0)
-                      + _proj_s.get("list_price_sw", 0)
-                      + _proj_s.get("list_price_support", 0))
-            _ship_s  = _proj_s.get("shipping", 0)
-            d = float(st.session_state["discount_pct"])
-            new_mep = round((_lp_s * (1 - d / 100) + _ship_s) * n, 0)
-            st.session_state["mep_input"]      = new_mep
-            st.session_state["mep_text_input"] = f"{int(new_mep):,}".replace(",", " ")
-
-        st.number_input(
-            "Systems",
-            min_value=1, max_value=99,
-            step=1,
-            disabled=not loaded,
-            help="Multiplies total price. When > 1, a note is added to the Exec Summary.",
-            key="num_systems_input",
-            on_change=_on_systems_change,
+        # ── Systems / Discount / EU Margin — inside pd3, below MEP ──────────
+        st.markdown(
+            '<div style="font-size:11px;color:var(--gray-70);margin:8px 0 2px">Price adjustments</div>',
+            unsafe_allow_html=True,
         )
-        st.session_state["num_systems"] = st.session_state["num_systems_input"]
-    with _disc_col:
-        st.number_input(
-            "Discount (%)",
-            min_value=5.0, max_value=95.0,
-            step=0.5,
-            format="%.1f",
-            disabled=not loaded,
-            key="disc_num",
-            on_change=_on_disc_change,
-        )
-    with _em_col:
-        if "eu_margin_pct_input" not in st.session_state:
-            st.session_state["eu_margin_pct_input"] = float(st.session_state["eu_margin_pct"])
+        _ns_col2, _disc_col2, _em_col2 = st.columns(3, gap="small")
 
-        def _on_margin_change():
-            m = float(st.session_state["eu_margin_pct_input"])
-            st.session_state["eu_margin_pct"] = m
-            # EU price = list*(1-d)+ship stays fixed when margin changes;
-            # margin only affects how BP is split from EU — no need to update MEP
+        with _ns_col2:
+            if "num_systems_input" not in st.session_state:
+                st.session_state["num_systems_input"] = int(st.session_state["num_systems"])
 
-        st.number_input(
-            "EU Margin (%)",
-            min_value=0.0, max_value=100.0,
-            step=0.5,
-            format="%.1f",
-            disabled=not loaded,
-            help="Partner margin deducted from EU price to get BP price.",
-            key="eu_margin_pct_input",
-            on_change=_on_margin_change,
-        )
-        st.session_state["eu_margin_pct"] = st.session_state["eu_margin_pct_input"]
+            def _on_systems_change():
+                n = int(st.session_state["num_systems_input"])
+                st.session_state["num_systems"] = n
+                _proj_s  = st.session_state.get("project_data") or {}
+                _lp_s    = (_proj_s.get("list_price_hw", 0)
+                          + _proj_s.get("list_price_sw", 0)
+                          + _proj_s.get("list_price_support", 0))
+                _ship_s  = _proj_s.get("shipping", 0)
+                d = float(st.session_state["discount_pct"])
+                new_mep = round((_lp_s * (1 - d / 100) + _ship_s) * n, 0)
+                st.session_state["mep_input"]      = new_mep
+                st.session_state["mep_text_input"] = f"{int(new_mep):,}".replace(",", " ")
+
+            st.number_input(
+                "Systems",
+                min_value=1, max_value=99,
+                step=1,
+                disabled=not loaded,
+                help="Multiplies total price. When > 1, a note is added to the Exec Summary.",
+                key="num_systems_input",
+                on_change=_on_systems_change,
+            )
+            st.session_state["num_systems"] = st.session_state["num_systems_input"]
+
+        with _disc_col2:
+            st.number_input(
+                "Discount (%)",
+                min_value=5.0, max_value=95.0,
+                step=0.5,
+                format="%.1f",
+                disabled=not loaded,
+                key="disc_num",
+                on_change=_on_disc_change,
+            )
+
+        with _em_col2:
+            if "eu_margin_pct_input" not in st.session_state:
+                st.session_state["eu_margin_pct_input"] = float(st.session_state["eu_margin_pct"])
+
+            def _on_margin_change():
+                m = float(st.session_state["eu_margin_pct_input"])
+                st.session_state["eu_margin_pct"] = m
+                # EU price = list*(1-d)+ship stays fixed when margin changes;
+                # margin only affects how BP is split from EU — no need to update MEP
+
+            st.number_input(
+                "EU Margin (%)",
+                min_value=0.0, max_value=100.0,
+                step=0.5,
+                format="%.1f",
+                disabled=not loaded,
+                help="Partner margin deducted from EU price to get BP price.",
+                key="eu_margin_pct_input",
+                on_change=_on_margin_change,
+            )
+            st.session_state["eu_margin_pct"] = st.session_state["eu_margin_pct_input"]
 
     # =========================================================================
     # STEP 3 — only shown after parsing
@@ -2140,9 +2348,19 @@ with main:
     _dm          = re.match(r"([\d.]+)\s*TB\s+Flash\w+\s+Module\s+(\d+)", _drive_raw, re.IGNORECASE)
     _drive_short = f"{_dm.group(1)} TB FCM{_dm.group(2)}" if _dm else _drive_raw
 
+    # ── SAN switches from parsed project data ────────────────────────────
+    _san_switches = project.get("san_switches", [])
+    _has_san      = bool(_san_switches)
+    _has_fs       = bool(project.get("model_code", ""))
+
     # ── Metrics strip — pure HTML grid, equal height guaranteed ──────────
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-    section("Configuration at a Glance")
+    if _has_fs and _has_san:
+        section("Configuration at a Glance — FlashSystem")
+    elif _has_san and not _has_fs:
+        section("Configuration at a Glance — SAN")
+    else:
+        section("Configuration at a Glance")
 
     _drive_qty  = project.get("drives_count", 0)
     _drive_disp = re.match(r"([\d.]+)\s*TB", _drive_raw)
@@ -2283,7 +2501,7 @@ with main:
             + '</div>',
             unsafe_allow_html=True,
         )
-    else:
+    elif _has_fs:
         # ── FlashSystem kafelki ───────────────────────────────────────────
         _is_hybrid    = project.get("is_hybrid", False)
         _drive_lbl    = (f"{_drive_qty} × {_drive_disp.group(1)} TB FCM"
@@ -2358,6 +2576,119 @@ with main:
         )
 
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+    # ── SAN Configuration at a Glance (only when SAN switches are present) ─
+    if _has_san:
+        if _has_fs:
+            section("Configuration at a Glance — SAN")
+        # build one tile per unique switch model, grouped by model_code
+        # collect switches — deduplicate by model_code, sum qty
+        _san_grouped: dict[str, dict] = {}
+        for _sw in _san_switches:
+            _k = _sw["model_code"]
+            if _k not in _san_grouped:
+                _san_grouped[_k] = dict(_sw)
+            else:
+                _san_grouped[_k]["qty"] += _sw["qty"]
+                # accumulate price
+                for _pf in ("list_price_hw", "list_price_sw", "list_price_support",
+                            "list_price_total", "shipping"):
+                    _san_grouped[_k][_pf] = (
+                        _san_grouped[_k].get(_pf, 0.0) + _sw.get(_pf, 0.0)
+                    )
+
+        for _sw_data in _san_grouped.values():
+            _sw_qty          = _sw_data.get("qty", 1)
+            _sw_name         = _sw_data.get("switch_short", _sw_data.get("model_code", ""))
+            _sw_model        = _sw_data.get("model_code", "")
+            _sw_brocade      = _sw_data.get("brocade_model", "")
+            _sw_exhaust      = _sw_data.get("exhaust", "")
+            _sw_exhaust_str  = f" · {_sw_exhaust} exhaust" if _sw_exhaust else ""
+            _sw_form         = _sw_data.get("form_factor", "")
+            _sw_max_ports    = _sw_data.get("max_ports", 0)
+            _sw_active_ports = _sw_data.get("active_ports", 0)
+            _sw_speed        = _sw_data.get("port_speed_gbps", 0)
+            _sw_sup_info     = _sw_data.get("support_info") or {}
+            _sw_sup_name     = _sw_sup_info.get("name", "—")
+            _sw_sup_yrs      = _sw_sup_info.get("years", "—")
+            _sw_sup_fix      = _sw_sup_info.get("fix_time_hours", "")
+            _sw_sup_fix_str  = f" · {_sw_sup_fix}" if _sw_sup_fix else ""
+            _sw_lp_hw        = _sw_data.get("list_price_hw", 0.0)
+            _sw_lp_sup       = _sw_data.get("list_price_support", 0.0)
+            _sw_lp_sw        = _sw_data.get("list_price_sw", 0.0)
+            _sw_ship         = _sw_data.get("shipping", 0.0)
+            _sw_curr         = _sw_data.get("currency", _curr)
+            # For SAN-only: honour num_systems as additional multiplier so the
+            # price tiles update when the user edits "Systems" in Step 2.
+            # _sw_qty already reflects the qty from the parsed config (e.g. 2× SAN64B-7);
+            # num_systems acts as a further "how many of this config" multiplier.
+            _sw_ns_mult      = _num_sys if not _has_fs else 1
+            _sw_lp_total     = (_sw_lp_hw + _sw_lp_sup + _sw_lp_sw) * _sw_qty * _sw_ns_mult
+            _sw_eu           = _sw_lp_total * (1 - discount_pct / 100) + _sw_ship * _sw_qty * _sw_ns_mult
+            _sw_bp           = _sw_eu * (1 - float(st.session_state.get("eu_margin_pct", 15.0)) / 100)
+
+            # SANnav licenses tile
+            _sw_sannav       = _sw_data.get("sannav_licenses", [])
+            _sw_sannav_tile  = ""
+            if _sw_sannav:
+                _sv_names = []
+                for _sv in _sw_sannav:
+                    _sv_yrs  = _sv.get("years", 0)
+                    _sv_desc = _sv.get("description", "")
+                    _sv_short = _sv_desc.replace("IBM SANnav ", "")
+                    _sv_yrs_s = f" ({_sv_yrs}Y)" if _sv_yrs else ""
+                    _sv_qty   = _sv.get("qty", 1) if "qty" in _sv else 1
+                    _sv_label = f"{_sv_qty}× {_sv_short}{_sv_yrs_s}" if _sv_qty > 1 else f"{_sv_short}{_sv_yrs_s}"
+                    _sv_names.append(_sv_label)
+                _sw_sannav_tile = _tile("SANnav Software",
+                                        _sv_names[0] if len(_sv_names) == 1 else f"{len(_sv_names)} licenses",
+                                        " · ".join(_sv_names) if len(_sv_names) > 1 else "")
+
+            # Optics tiles — separate LW and SW/cable
+            _sw_lw_qty      = _sw_data.get("lw_optics_qty", 0)
+            _sw_swc_qty     = _sw_data.get("sw_optics_qty", 0)
+            _sw_lw_tile     = ""
+            _sw_swc_tile    = ""
+            if _sw_lw_qty:
+                _sw_lw_tile  = _tile("LW Optics (SFP)",
+                                     f"{_sw_lw_qty} × LW SFP",
+                                     "long-wave · 10 km · single-mode")
+            if _sw_swc_qty:
+                _sw_swc_tile = _tile("SW Cables / SFP",
+                                     f"{_sw_swc_qty} × OM3 LC",
+                                     "short-wave · multimode · ≤10 m")
+
+            # Qty prefix for tile labels
+            _qty_pfx = f"{_sw_qty} × " if _sw_qty > 1 else ""
+            # Brocade model — own tile
+            _sw_brocade_tile = ""
+            if _sw_brocade:
+                _sw_brocade_tile = _tile("OEM Platform",
+                                         _sw_brocade,
+                                         "IBM OEM — Brocade / Broadcom")
+
+            st.markdown(
+                '<div class="ibm-metric-row">'
+                + _tile("Switch Model",
+                        f"{_qty_pfx}{_sw_name}",
+                        f"{_sw_model}{_sw_exhaust_str} · {_sw_form}")
+                + _sw_brocade_tile
+                + _tile("Active / Max Ports",
+                        f"{_sw_active_ports} / {_sw_max_ports}",
+                        f"port speed: {_sw_speed} Gbps FC")
+                + _sw_lw_tile
+                + _sw_swc_tile
+                + _sw_sannav_tile
+                + _tile("Support", _sw_sup_name,
+                        f"{_sw_sup_yrs} yr{_sw_sup_fix_str}" if _sw_sup_yrs != "—" else "—")
+                + _tile("Switch BP Price", f"{_sw_bp:,.0f} {_sw_curr}",
+                        f"{_sw_qty * _sw_ns_mult} × switch" if _sw_qty * _sw_ns_mult > 1 else "")
+                + _tile("Switch EU Price", f"{_sw_eu:,.0f} {_sw_curr}",
+                        "= Requested MEP (switch only)" if not _has_fs else "switch total")
+                + '</div>',
+                unsafe_allow_html=True,
+            )
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
     # ── Data Profile + Settings — collapsed expanders under metrics ────────
     _pd_col, _st_col = st.columns(2, gap="large")
@@ -2553,25 +2884,27 @@ with main:
         t1_left, t1_right = st.columns([1, 1], gap="large")
 
         with t1_left:
-            section("Performance Data")
-            iops_from_file = project.get("perf_iops_total", 0)
-            iops_sub1      = project.get("perf_iops_max_sub1ms", 0)
-            lat_sub1       = project.get("perf_latency_at_max_sub1ms", 0.0)
-            if not iops_from_file:
-                st.markdown(notif("warn", "No performance file — enter IOPS manually."), unsafe_allow_html=True)
-                iops_manual = st.number_input(
-                    "IOPS (manual entry)",
-                    min_value=0, max_value=10_000_000,
-                    value=st.session_state["iops_manual"], step=10_000,
-                )
-                st.session_state["iops_manual"] = iops_manual
-            else:
-                sub1_str = f" &nbsp;|&nbsp; Max below 1 ms: <b>{iops_sub1:,} IOPS @ {lat_sub1:.3f} ms</b>" if iops_sub1 else ""
-                st.markdown(
-                    notif("ok", f"Workload: <b>{iops_from_file:,} IOPS</b> · {project.get('perf_latency_ms',0):.3f} ms{sub1_str}"),
-                    unsafe_allow_html=True,
-                )
-                iops_manual = 0
+            _exec_san_only = bool(project.get("san_switches")) and not bool(project.get("model_code", ""))
+            iops_manual = 0
+            if not _exec_san_only:
+                section("Performance Data")
+                iops_from_file = project.get("perf_iops_total", 0)
+                iops_sub1      = project.get("perf_iops_max_sub1ms", 0)
+                lat_sub1       = project.get("perf_latency_at_max_sub1ms", 0.0)
+                if not iops_from_file:
+                    st.markdown(notif("warn", "No performance file — enter IOPS manually."), unsafe_allow_html=True)
+                    iops_manual = st.number_input(
+                        "IOPS (manual entry)",
+                        min_value=0, max_value=10_000_000,
+                        value=st.session_state["iops_manual"], step=10_000,
+                    )
+                    st.session_state["iops_manual"] = iops_manual
+                else:
+                    sub1_str = f" &nbsp;|&nbsp; Max below 1 ms: <b>{iops_sub1:,} IOPS @ {lat_sub1:.3f} ms</b>" if iops_sub1 else ""
+                    st.markdown(
+                        notif("ok", f"Workload: <b>{iops_from_file:,} IOPS</b> · {project.get('perf_latency_ms',0):.3f} ms{sub1_str}"),
+                        unsafe_allow_html=True,
+                    )
 
             section("Pricing Preview")
             list_hw   = project.get("list_price_hw", 0)
@@ -2592,7 +2925,7 @@ with main:
             bp_hw     = eu_hw  * m
             bp_sw     = eu_sw  * m
             bp_sup    = eu_sup * m
-            bp_ship   = eu_ship * m
+            bp_ship   = eu_ship          # shipping passes through without margin
             bp_tot    = bp_hw + bp_sw + bp_sup + bp_ship
             list_tot  = (list_hw+list_sw+list_sup+ship) * n_sys
 
@@ -2613,9 +2946,9 @@ with main:
             }, hide_index=True, use_container_width=True)
             _sys_label = f"{n_sys} × {model_info.get('short', model_code)}" if n_sys > 1 else model_info.get('short', model_code)
             if n_sys > 1:
-                st.markdown(notif("info", f"End User Price dotyczy <b>{n_sys} macierzy</b> ({_sys_label}) łącznie."), unsafe_allow_html=True)
+                st.markdown(notif("info", f"End User Price covers <b>{n_sys} systems</b> ({_sys_label}) combined."), unsafe_allow_html=True)
             else:
-                st.markdown(notif("info", f"End User Price dla <b>1 macierzy</b> ({_sys_label})."), unsafe_allow_html=True)
+                st.markdown(notif("info", f"End User Price for <b>1 system</b> ({_sys_label})."), unsafe_allow_html=True)
 
             valid_date = (date.today() + timedelta(days=30)).strftime("%d %b %Y")
             st.markdown(notif("info", f"Offer valid until <b>{valid_date}</b> (30 days from today)."), unsafe_allow_html=True)
@@ -2703,35 +3036,41 @@ with main:
         r1_left, r1_right = st.columns([1, 1], gap="large")
 
         with r1_left:
-            section("Informacje o RFP")
-            rfp_iops_from_file = project.get("perf_iops_total", 0)
-            rfp_iops_sub1      = project.get("perf_iops_max_sub1ms", 0)
-            rfp_lat_sub1       = project.get("perf_latency_at_max_sub1ms", 0.0)
-            if rfp_iops_from_file:
-                rfp_iops_val = rfp_iops_sub1 or rfp_iops_from_file
-                st.markdown(
-                    notif("ok", f"Wydajność z pliku: <b>{rfp_iops_val:,} IOPS</b>"
-                          + (f" @ {rfp_lat_sub1:.3f} ms (max sub-1ms)" if rfp_iops_sub1 else "")),
-                    unsafe_allow_html=True,
-                )
-                rfp_iops_manual = 0
-            else:
-                st.markdown(notif("warn", "Brak pliku wydajności — wprowadź IOPS ręcznie."), unsafe_allow_html=True)
-                rfp_iops_manual = st.number_input(
-                    "IOPS (ręczne wprowadzenie)",
-                    min_value=0, max_value=10_000_000,
-                    value=st.session_state.get("rfp_iops_manual", 0), step=10_000,
-                )
-                st.session_state["rfp_iops_manual"] = rfp_iops_manual
+            section("RFP Information")
+            _rfp_san_only = bool(project.get("san_switches")) and not bool(project.get("model_code", ""))
+            rfp_iops_manual    = 0
+            rfp_iops_from_file = 0   # initialise; set below for non-SAN configs
+            if not _rfp_san_only:
+                rfp_iops_from_file = project.get("perf_iops_total", 0)
+                rfp_iops_sub1      = project.get("perf_iops_max_sub1ms", 0)
+                rfp_lat_sub1       = project.get("perf_latency_at_max_sub1ms", 0.0)
+                if rfp_iops_from_file:
+                    rfp_iops_val = rfp_iops_sub1 or rfp_iops_from_file
+                    st.markdown(
+                        notif("ok", f"Performance from file: <b>{rfp_iops_val:,} IOPS</b>"
+                              + (f" @ {rfp_lat_sub1:.3f} ms (max sub-1ms)" if rfp_iops_sub1 else "")),
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown(notif("warn", "No performance file — enter IOPS manually."), unsafe_allow_html=True)
+                    rfp_iops_manual = st.number_input(
+                        "IOPS (manual entry)",
+                        min_value=0, max_value=10_000_000,
+                        value=st.session_state.get("rfp_iops_manual", 0), step=10_000,
+                    )
+                    st.session_state["rfp_iops_manual"] = rfp_iops_manual
 
             st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
             sup = project.get("support_info") or {}
+            # For SAN-only, try to get support from first switch
+            if _rfp_san_only and not sup:
+                sup = (project.get("san_switches") or [{}])[0].get("support_info") or {}
             _rfp_fix = sup.get("fix_time_hours") if sup.get("fix_time") else None
             st.markdown(notif("info",
                 f"Support: <b>{sup.get('name','—')}</b> · "
                 f"{sup.get('coverage','—')} · "
                 f"{('fix-time: ' + _rfp_fix) if _rfp_fix else 'no fix-time'} · "
-                f"{sup.get('years','—')} lat"
+                f"{sup.get('years','—')} yr"
             ), unsafe_allow_html=True)
 
         with r1_right:
@@ -2753,24 +3092,66 @@ with main:
             if missing_rfp:
                 st.markdown(notif("warn", "Fill in " + ", ".join(missing_rfp) + " in Step 2."), unsafe_allow_html=True)
 
-            if st.button("Generate RFP / RFI (.docx) →", type="primary", use_container_width=True, key="btn_rfp"):
+            _rfp_label = (
+                "Generate SAN RFP / Specification (.docx) →"
+                if _rfp_san_only else
+                "Generate RFP / RFI (.docx) →"
+            )
+            if st.button(_rfp_label, type="primary", use_container_width=True, key="btn_rfp"):
                 with st.spinner("Generating RFP…"):
                     try:
-                        rfp_iops_used = rfp_iops_manual if not rfp_iops_from_file else 0
-                        _rfp_fn = (generate_scale_rfp
-                                   if st.session_state["product_line"] == "scale"
-                                   else generate_rfp)
-                        rfp_bytes = _rfp_fn(
-                            project=project,
-                            client_name=client_name,
-                            seller_name=seller_name,
-                            iops_override=rfp_iops_used if rfp_iops_used > 0 else None,
-                            lang=st.session_state["rfp_lang"],
-                            num_systems=int(st.session_state.get("num_systems", 1)),
-                        )
                         slug = re.sub(r"[^\w]", "_", client_name) if client_name else "Client"
                         _rfp_sfx = "_PL" if st.session_state["rfp_lang"] == "pl" else ""
-                        rfp_fname = f"RFP_{model_info.get('short', model_code)}_{slug}_{date.today():%Y%m%d}{_rfp_sfx}.docx"
+                        if _rfp_san_only:
+                            # SAN-only → dedicated SAN RFP
+                            rfp_bytes = generate_san_rfp(
+                                project=project,
+                                client_name=client_name,
+                                seller_name=seller_name,
+                                lang=st.session_state["rfp_lang"],
+                            )
+                            _san_short = (project.get("san_switches") or [{}])[0].get("switch_short", "SAN")
+                            rfp_fname = f"RFP_SAN_{_san_short}_{slug}_{date.today():%Y%m%d}{_rfp_sfx}.docx"
+                        else:
+                            # FlashSystem / Scale RFP
+                            rfp_iops_used = rfp_iops_manual if not rfp_iops_from_file else 0
+                            _rfp_fn = (generate_scale_rfp
+                                       if st.session_state["product_line"] == "scale"
+                                       else generate_rfp)
+                            rfp_bytes = _rfp_fn(
+                                project=project,
+                                client_name=client_name,
+                                seller_name=seller_name,
+                                iops_override=rfp_iops_used if rfp_iops_used > 0 else None,
+                                lang=st.session_state["rfp_lang"],
+                                num_systems=int(st.session_state.get("num_systems", 1)),
+                            )
+                            rfp_fname = f"RFP_{model_info.get('short', model_code)}_{slug}_{date.today():%Y%m%d}{_rfp_sfx}.docx"
+                            # FS+SAN: append SAN section as a second document merged inline
+                            if project.get("san_switches"):
+                                from docx import Document as _Doc2
+                                from docx.enum.text import WD_BREAK
+                                # Generate standalone SAN spec
+                                san_rfp_bytes = generate_san_rfp(
+                                    project=project,
+                                    client_name=client_name,
+                                    seller_name=seller_name,
+                                    lang=st.session_state["rfp_lang"],
+                                )
+                                # Merge: open FS doc, append SAN doc paragraphs + tables
+                                fs_doc  = _Doc2(io.BytesIO(rfp_bytes))
+                                san_doc = _Doc2(io.BytesIO(san_rfp_bytes))
+                                # Add page-break divider before SAN section
+                                _break_p = fs_doc.add_paragraph()
+                                _break_r = _break_p.add_run()
+                                _break_r.add_break(WD_BREAK.PAGE)
+                                # Copy all body elements from san_doc into fs_doc
+                                for _elem in san_doc.element.body:
+                                    fs_doc.element.body.append(copy.deepcopy(_elem))
+                                _merged_buf = io.BytesIO()
+                                fs_doc.save(_merged_buf)
+                                rfp_bytes = _merged_buf.getvalue()
+                                rfp_fname = f"RFP_{model_info.get('short', model_code)}_SAN_{slug}_{date.today():%Y%m%d}{_rfp_sfx}.docx"
                         st.session_state["rfp_bytes"]    = rfp_bytes
                         st.session_state["rfp_filename"] = rfp_fname
                         st.markdown(notif("ok", f"Ready: <b>{rfp_fname}</b>"), unsafe_allow_html=True)
@@ -2780,7 +3161,7 @@ with main:
 
             if st.session_state["rfp_bytes"]:
                 st.download_button(
-                    "⬇  Pobierz RFP .docx",
+                    "⬇  Download RFP .docx",
                     data=st.session_state["rfp_bytes"],
                     file_name=st.session_state["rfp_filename"],
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -2789,21 +3170,52 @@ with main:
                 )
 
         st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
-        section("Podgląd — Wymagania konfiguracji")
-        rfp_rows = [
-            ("Obudowa",       f"{model_info.get('form_factor','1U')} · {project.get('io_groups','2')} I/O Groups · {project.get('enclosures','1')} obudow(a)"),
-            ("Pojemność raw", f"{project.get('raw_tib',0):.2f} TiB / {project.get('raw_tb',0):.2f} TB"),
-            ("Pojemność usable", f"{project.get('usable_tib',0):.2f} TiB / {project.get('usable_tb',0):.2f} TB  [{project.get('raid_type','RAID 6')}]"),
-            ("Napędy",        f"{project.get('drives_count',0)} × {project.get('drive_label', project.get('drive_type','FCM5'))}"),
-            ("Pamięć cache",  f"{project.get('cache_gb',256)} GB"),
-            ("Porty FC",      f"{project.get('fc_ports',8)} × 32 Gb/s"),
-            ("Szyfrowanie",   "Tak" if project.get("encryption") else "Wymagane"),
-            ("Serwis",        f"{sup.get('name','—')} · {sup.get('coverage','—')} · {sup.get('years','—')} lat"),
-        ]
-        st.dataframe(
-            {"Parametr": [r[0] for r in rfp_rows], "Wartość": [r[1] for r in rfp_rows]},
-            hide_index=True, use_container_width=True,
-        )
+
+        # Configuration Requirements Preview — adapt for SAN-only
+        section("Configuration Requirements Preview")
+        if _rfp_san_only:
+            _san_preview = []
+            for _sw in (project.get("san_switches") or []):
+                _sw_qty  = _sw.get("qty", 1)
+                _sw_name = _sw.get("switch_short", _sw.get("model_code", "—"))
+                _sw_act  = _sw.get("active_ports", 0)
+                _sw_max  = _sw.get("max_ports", 0)
+                _sw_spd  = _sw.get("port_speed_gbps", 32)
+                _sw_sup2 = (_sw.get("support_info") or {})
+                _sw_lw   = _sw.get("lw_optics_qty", 0)
+                _sw_swc  = _sw.get("sw_optics_qty", 0)
+                _san_preview += [
+                    ("Switch model",   f"{_sw_qty}× {_sw_name}"),
+                    ("Active / max ports", f"{_sw_act} / {_sw_max}"),
+                    ("Port speed",     f"{_sw_spd} Gbps FC"),
+                    ("LW optics",      f"{_sw_lw}× SFP+ LW" if _sw_lw else "—"),
+                    ("SW cables",      f"{_sw_swc}× OM3 cable" if _sw_swc else "—"),
+                    ("Support",        f"{_sw_sup2.get('name','—')} · {_sw_sup2.get('coverage','—')} · {_sw_sup2.get('years','—')} yr"),
+                ]
+            st.dataframe(
+                {"Parameter": [r[0] for r in _san_preview], "Value": [r[1] for r in _san_preview]},
+                hide_index=True, use_container_width=True,
+            )
+        else:
+            rfp_rows = [
+                ("Enclosure",      f"{model_info.get('form_factor','1U')} · {project.get('io_groups','2')} I/O Groups · {project.get('enclosures','1')} enclosure(s)"),
+                ("Raw capacity",   f"{project.get('raw_tib',0):.2f} TiB / {project.get('raw_tb',0):.2f} TB"),
+                ("Usable capacity",f"{project.get('usable_tib',0):.2f} TiB / {project.get('usable_tb',0):.2f} TB  [{project.get('raid_type','RAID 6')}]"),
+                ("Drives",         f"{project.get('drives_count',0)} × {project.get('drive_label', project.get('drive_type','FCM5'))}"),
+                ("Cache",          f"{project.get('cache_gb',256)} GB"),
+                ("FC ports",       f"{project.get('fc_ports',8)} × 32 Gb/s"),
+                ("Encryption",     "Yes" if project.get("encryption") else "Required"),
+                ("Support",        f"{sup.get('name','—')} · {sup.get('coverage','—')} · {sup.get('years','—')} years"),
+            ]
+            if project.get("san_switches"):
+                rfp_rows.append(("SAN switches", "; ".join(
+                    f"{s.get('qty',1)}× {s.get('switch_short', s.get('model_code',''))}"
+                    for s in project.get("san_switches", [])
+                )))
+            st.dataframe(
+                {"Parameter": [r[0] for r in rfp_rows], "Value": [r[1] for r in rfp_rows]},
+                hide_index=True, use_container_width=True,
+            )
 
     # =====================================================================
     # =====================================================================
@@ -2816,10 +3228,11 @@ with main:
         list_hw2  = project.get("list_price_hw", 0)
         list_sw2  = project.get("list_price_sw", 0)
         list_sup2 = project.get("list_price_support", 0)
+        ship2     = project.get("shipping", 0)
         d2        = discount_pct / 100
         curr2     = project.get("currency", "EUR")
-        net2      = list_hw2*(1-d2) + list_sw2*(1-d2) + list_sup2*(1-d2)
-        list_tot2 = list_hw2 + list_sw2 + list_sup2
+        net2      = list_hw2*(1-d2) + list_sw2*(1-d2) + list_sup2*(1-d2) + ship2
+        list_tot2 = list_hw2 + list_sw2 + list_sup2 + ship2
         dev_from_60 = discount_pct - 60.0
 
         # ── Build auto-suggested texts (computed once, user can override) ─
@@ -2838,6 +3251,8 @@ with main:
         _deal_str = f" Workload scenario: {_deal_label}." if _deal_label and _deal_label != "— wybierz —" else ""
 
         _is_scale_bid = (st.session_state.get("product_line") == "scale")
+        _is_san_only  = bool(project.get("san_switches")) and not bool(project.get("model_code", ""))
+        _san_switches_bid = project.get("san_switches", [])
 
         if _is_scale_bid:
             # ── Scale-specific opportunity context ───────────────────────
@@ -2863,51 +3278,82 @@ with main:
                 f"Support: {_sup_name}.{_deal_str} "
                 f"Currently in the RFP response stage. {_due_str}"
             )
+        elif _is_san_only:
+            # ── SAN-only opportunity context ─────────────────────────────
+            _san_lines = []
+            for _sw in _san_switches_bid:
+                _sw_qty  = _sw.get("qty", 1)
+                _sw_name = _sw.get("switch_name", _sw.get("switch_short", "SAN Switch"))
+                _sw_act  = _sw.get("active_ports", 0)
+                _sw_max  = _sw.get("max_ports", 0)
+                _sw_sup  = (_sw.get("support_info") or {}).get("name", "Expert Care")
+                _sw_spd  = _sw.get("port_speed_gbps", 32)
+                _san_lines.append(
+                    f"{_sw_qty}× {_sw_name} ({_sw_act}/{_sw_max} ports active, {_sw_spd} Gbps FC)"
+                )
+            _san_summary = "; ".join(_san_lines) if _san_lines else "IBM b-type SAN switches"
+            _hint_opportunity = (
+                f"IBM Fibre Channel SAN fabric opportunity for {client_name or '[Client]'} — "
+                f"delivery of {_san_summary}. "
+                f"Support: {_sup_name}.{_deal_str} "
+                f"Currently in the RFP response stage. {_due_str}"
+            )
         else:
             # ── FlashSystem opportunity context ──────────────────────────
             _fc = project.get("fc_ports", 8)
+            _san_addon = ""
+            if _san_switches_bid:
+                _sw0 = _san_switches_bid[0]
+                _san_addon = (
+                    f" SAN fabric: {_sw0.get('qty', 1)}× {_sw0.get('switch_name', 'SAN Switch')} "
+                    f"({_sw0.get('active_ports', 0)} active ports)."
+                )
             _hint_opportunity = (
                 f"Net-new IBM storage deployment opportunity for {client_name or '[Client]'} — "
                 f"delivery of {_mname} with {_drives}× {_dshort} drives, "
                 f"{_raw:.1f} TiB raw / {_usable:.1f} TiB usable ({_raid}), "
                 f"{_cache} GB cache, {_fc} FC 32Gb/s ports"
                 + (f", up to {_iops_sub1:,} IOPS below 1 ms latency" if _iops_sub1 else "")
-                + f". Support: {_sup_name}.{_deal_str} "
+                + f". Support: {_sup_name}.{_san_addon}{_deal_str} "
                 f"Currently in the RFP response stage. {_due_str}"
             )
 
-        # Pobierz wybranych konkurentów PRZED budowaniem background (potrzebne do spójności)
+        # Collect competitors — SAN uses different list
         _bj_comp_list  = st.session_state.get("bid_competitors_sel", [])
         _bj_incumbent  = st.session_state.get("bid_incumbent", "")
         _bj_inc_model  = st.session_state.get("bid_incumbent_model", "")
         _bj_budget     = st.session_state.get("bid_client_budget", "")
         _bj_comp_str   = ", ".join(_bj_comp_list) if _bj_comp_list else (
-            "leading parallel file storage vendors" if _is_scale_bid else "leading all-flash vendors"
+            "leading parallel file storage vendors" if _is_scale_bid
+            else ("Cisco MDS, HPE SN switches" if _is_san_only else "leading all-flash vendors")
         )
 
-        # Wybierz wariant tekstu zależny od deal_type — rotacja losowa per sesja+deal_type
+        # Select background text variant based on deal_type
         _bg_variants = _BACKGROUND_VARIANTS.get(deal_type, [])
         if _bg_variants and not _is_scale_bid:
-            # klucz deterministyczny w ramach sesji i deal_type, żeby nie zmieniał się przy rerunie
+            # deterministic per session+deal_type to avoid rerun changes
             _bg_seed_key = f"_bg_variant_idx_{deal_type}"
             if _bg_seed_key not in st.session_state:
                 st.session_state[_bg_seed_key] = random.randint(0, len(_bg_variants) - 1)
             _bg_idx = st.session_state[_bg_seed_key] % len(_bg_variants)
             _hint_background = _bg_variants[_bg_idx].format(
                 client=client_name or "[Client]",
-                mname=_mname,
+                mname=_mname if not _is_san_only else (
+                    _san_switches_bid[0].get("switch_name", "IBM SAN Switch") if _san_switches_bid else "IBM SAN Switch"
+                ),
                 usable=_usable,
                 raid=_raid,
                 sup_name=_sup_name,
             )
-            # Nadpisz zakodowanych na stałe konkurentów wybranymi przez użytkownika
+            # Replace hardcoded competitor names with user selection
             if _bj_comp_list:
                 _hint_background = re.sub(
                     r"(Special Bid pricing is (?:required|requested|needed|necessary)|"
                     r"Exception pricing is (?:required|requested|needed|necessary)|"
                     r"The requested (?:exception discount|discount) is (?:required|necessary))"
                     r"([^.]+?)"
-                    r"(Pure Storage|Dell EMC|NetApp|HPE|Hitachi|Huawei|VAST Data|Qumulo|Commvault|Veritas|Zerto)"
+                    r"(Pure Storage|Dell EMC|NetApp|HPE|Hitachi|Huawei|VAST Data|Qumulo|Commvault|Veritas|Zerto|"
+                    r"Cisco MDS|HPE SN|Arista)"
                     r"([^.]*\.)",
                     lambda m: f"{m.group(1)}{m.group(2)}{_bj_comp_str}.",
                     _hint_background,
@@ -2966,6 +3412,39 @@ with main:
                 f"Winning this deal establishes IBM as the strategic AI storage supplier at this account "
                 f"with significant follow-on expansion potential."
             )
+        elif _is_san_only:
+            # ── SAN-specific business justification ──────────────────────
+            _san_total_ports = sum(
+                sw.get("active_ports", 0) * sw.get("qty", 1) for sw in _san_switches_bid
+            )
+            _san_max_ports = sum(
+                sw.get("max_ports", 0) * sw.get("qty", 1) for sw in _san_switches_bid
+            )
+            _san_model_names = ", ".join(
+                f"{sw.get('qty', 1)}× {sw.get('switch_name', 'SAN Switch')}"
+                for sw in _san_switches_bid
+            ) if _san_switches_bid else "IBM b-type SAN switches"
+            _hint_business_just = (
+                f"Requested BP price: {net2:,.0f} {curr2} (IBM list: {list_tot2:,.0f} {curr2}) — "
+                f"discount {discount_pct:.1f}%, {_dev_str}.\n\n"
+                + (f"Client's approximate budget: {_bj_budget} {curr2}.\n" if _bj_budget else "")
+                + (f"Incumbent: {_bj_incumbent}" + (f" ({_bj_inc_model})" if _bj_inc_model else "") + ".\n" if _bj_incumbent else "")
+                + f"\nJustification: The requested discount is necessary to compete against {_bj_comp_str}, "
+                f"which {'are' if ',' in _bj_comp_str else 'is'} expected to submit proposals significantly "
+                f"below IBM list price for this SAN infrastructure refresh.\n\n"
+                f"Configuration: {_san_model_names} — {_san_total_ports} active FC ports "
+                f"({_san_max_ports} max) with IBM Storage Expert Care support.\n\n"
+                f"IBM b-type SAN switches (Brocade OEM) justify the investment through: "
+                f"(1) Native IBM stack integration — single-vendor support with IBM FlashSystem and DS8000, "
+                f"eliminating cross-vendor support boundary issues; "
+                f"(2) Gen 7 / Gen 8 Fibre Channel technology — 64 Gbps FC and NVMe-oF readiness "
+                f"for next-generation storage connectivity; "
+                f"(3) IBM Storage Expert Care — 4-hour hardware response SLA with proactive monitoring "
+                f"through IBM Storage Insights, unavailable in Cisco MDS or HPE proposals.\n\n"
+                f"Failure to approve this discount will result in loss of the SAN refresh opportunity "
+                f"to {_bj_comp_str}. IBM SAN presence in this account is a prerequisite for future "
+                f"FlashSystem storage expansion opportunities."
+            )
         else:
             _hint_business_just = (
                 f"Requested BP price: {net2:,.0f} {curr2} (IBM list: {list_tot2:,.0f} {curr2}) — "
@@ -2996,7 +3475,7 @@ with main:
 
         with sb1:
             # ── Channel / tier table ──────────────────────────────────────
-            section("Kanał sprzedaży")
+            section("Sales Channel")
 
             bid_dist_idx = (DISTRIBUTORS.index(st.session_state["bid_distributor"])
                             if st.session_state["bid_distributor"] in DISTRIBUTORS else 0)
@@ -3023,13 +3502,13 @@ with main:
                 index=bid_rep_idx,
                 disabled=not loaded,
                 key="sel_salesrep",
-                help="Domyślnie pobierany z Step 2 — możesz zmienić niezależnie",
+                help="Auto-populated from Step 2 — can be changed independently",
             )
 
             st.session_state["bid_reseller"] = st.text_input(
                 "Tier 2 Reseller",
                 value=st.session_state["bid_reseller"],
-                placeholder="Nazwa firmy resellera",
+                placeholder="Reseller company name",
                 disabled=not loaded,
             )
             # End user comes from client_name (Step 2)
@@ -3038,41 +3517,41 @@ with main:
                 f'letter-spacing:.06em;color:var(--gray-70);margin-top:8px">End User</div>'
                 f'<div style="font-size:14px;color:var(--gray-100);padding:8px 0 4px;'
                 f'border-bottom:1px solid var(--gray-20)">'
-                f'{client_name or "<i style=\'color:var(--gray-50)\'>uzupełnij w Step 2</i>"}</div>',
+                f'{client_name or "<i style=\'color:var(--gray-50)\'>fill in Step 2</i>"}</div>',
                 unsafe_allow_html=True,
             )
 
             # ── Pricing summary ───────────────────────────────────────────
             section("Pricing Summary (auto)")
             st.dataframe({
-                "Kategoria": ["Hardware (List)", "Support (List)", "Software (List)", "NET Total"],
+                "Category": ["Hardware (List)", "Support (List)", "Software (List)", "Shipping", "NET Total"],
                 f"List ({curr2})": [
                     f"{list_hw2:,.2f}", f"{list_sup2:,.2f}", f"{list_sw2:,.2f}",
-                    f"{list_tot2:,.2f}",
+                    f"{ship2:,.2f}", f"{list_tot2:,.2f}",
                 ],
                 f"Net @ {discount_pct:.0f}%": [
                     f"{list_hw2*(1-d2):,.2f}", f"{list_sup2*(1-d2):,.2f}",
-                    f"{list_sw2*(1-d2):,.2f}", f"{net2:,.2f}",
+                    f"{list_sw2*(1-d2):,.2f}", f"{ship2:,.2f}", f"{net2:,.2f}",
                 ],
             }, hide_index=True, use_container_width=True)
 
             if discount_pct > 65:
                 st.markdown(notif("warn",
-                    f"Upust <b>{discount_pct:.1f}%</b> — wymagany Special Bid "
-                    f"(odchylenie <b>{dev_from_60:.1f} pp</b> od baseline 60%)."),
+                    f"Discount <b>{discount_pct:.1f}%</b> — Special Bid required "
+                    f"(<b>{dev_from_60:.1f} pp</b> above the 60% baseline)."),
                     unsafe_allow_html=True)
             else:
                 st.markdown(notif("ok",
-                    f"Upust <b>{discount_pct:.1f}%</b> — w ramach standardowego baseline."),
+                    f"Discount <b>{discount_pct:.1f}%</b> — within standard 60% baseline."),
                     unsafe_allow_html=True)
 
         with sb2:
             # ── Section A — Opportunity Context ──────────────────────────
-            section("Sekcja A — Opportunity Context")
+            section("Section A — Opportunity Context")
             st.markdown(
                 '<div style="font-size:11px;color:var(--gray-70);margin-bottom:4px">'
-                '💡 Podaj rozwiązanie, zakres dealu i etap sprzedaży. '
-                'Poniżej gotowy tekst — edytuj wg potrzeb.</div>',
+                '💡 Describe the solution, deal scope and sales stage. '
+                'Pre-filled text below — edit as needed.</div>',
                 unsafe_allow_html=True,
             )
             if not st.session_state["bid_opportunity_ctx"] and loaded:
@@ -3085,12 +3564,12 @@ with main:
             )
 
             # ── Section A — Deal Background ───────────────────────────────
-            section("Sekcja A — Deal Background / Scenario")
+            section("Section A — Deal Background / Scenario")
             # Gdy deal_type się zmienia, wyczyść poprzedni tekst i przypisz nowy wariant
             _prev_dt_key = "_prev_deal_type_for_bg"
             if st.session_state.get(_prev_dt_key) != deal_type:
                 st.session_state["bid_background"] = ""
-                # Wylosuj nowy wariant przy każdej zmianie deal_type
+                # Reset background text when deal_type changes
                 _bg_seed_key2 = f"_bg_variant_idx_{deal_type}"
                 _bg_variants2 = _BACKGROUND_VARIANTS.get(deal_type, [])
                 if _bg_variants2:
@@ -3100,12 +3579,12 @@ with main:
             with _bg_hint_label_cols[0]:
                 st.markdown(
                     '<div style="font-size:11px;color:var(--gray-70);margin-bottom:4px">'
-                    '💡 Tekst dopasowany do wybranego scenariusza — edytuj wg potrzeb.</div>',
+                    '💡 Text matched to the selected scenario — edit as needed.</div>',
                     unsafe_allow_html=True,
                 )
             with _bg_hint_label_cols[1]:
-                if loaded and st.button("↺ Nowy wariant", key="btn_regen_bg",
-                                        help="Wylosuj kolejny wariant tekstu dla tego scenariusza",
+                if loaded and st.button("↺ New variant", key="btn_regen_bg",
+                                        help="Rotate to the next text variant for this scenario",
                                         use_container_width=True):
                     _bg_seed_key3 = f"_bg_variant_idx_{deal_type}"
                     _bg_vars3 = _BACKGROUND_VARIANTS.get(deal_type, [])
@@ -3130,23 +3609,34 @@ with main:
         sb3, sb4 = st.columns([1, 1], gap="large")
 
         with sb3:
-            section("Sekcja B — Competitive Positioning")
+            section("Section B — Competitive Positioning")
             st.markdown(
                 '<div style="font-size:11px;color:var(--gray-70);margin-bottom:6px">'
-                '💡 Wybierz głównych konkurentów i uzupełnij informacje o incumbent.</div>',
+                '💡 Select the main competitors and fill in incumbent details.</div>',
                 unsafe_allow_html=True,
             )
-            # Własny label z czerwoną gwiazdką — pole wymagane
+            # Custom label with required asterisk
             st.markdown(
                 '<div style="font-size:12px;font-weight:600;text-transform:uppercase;'
                 'letter-spacing:.06em;color:var(--gray-70);margin-bottom:4px">'
-                'Główni konkurenci&nbsp;<span style="color:#da1e28;font-size:13px">*</span></div>',
+                'Key competitors&nbsp;<span style="color:#da1e28;font-size:13px">*</span></div>',
                 unsafe_allow_html=True,
             )
+            # Use SAN competitor list for SAN-only deals
+            _bid_comp_options = (
+                COMPETITORS_SAN if _is_san_only else COMPETITORS_STORAGE
+            )
+            # Auto-clear competitor selection if it contains storage-specific items when switching to SAN
+            _san_comp_names = {c for c in COMPETITORS_SAN}
+            _storage_comp_names = {c for c in COMPETITORS_STORAGE}
+            _cur_sel = st.session_state["bid_competitors_sel"]
+            if _is_san_only and any(c in _storage_comp_names - _san_comp_names for c in _cur_sel):
+                st.session_state["bid_competitors_sel"] = []
+                _cur_sel = []
             st.session_state["bid_competitors_sel"] = st.multiselect(
-                "Główni konkurenci",
-                options=COMPETITORS_STORAGE,
-                default=st.session_state["bid_competitors_sel"],
+                "Key competitors",
+                options=_bid_comp_options,
+                default=[c for c in _cur_sel if c in _bid_comp_options],
                 disabled=not loaded,
                 key="ms_competitors",
                 label_visibility="collapsed",
@@ -3173,29 +3663,41 @@ with main:
             _incumbent = st.session_state["bid_incumbent"]
             _inc_model = st.session_state["bid_incumbent_model"]
             if _comp_list or _incumbent:
-                _comp_str = ", ".join(_comp_list) if _comp_list else "brak danych"
-                _hint_comp = (
-                    f"This is a competitive all-flash storage opportunity. "
-                    + (f"Incumbent vendor: {_incumbent}" + (f" ({_inc_model})" if _inc_model else "") + ". " if _incumbent else "")
-                    + f"Key competitors: {_comp_str}. "
-                    f"Competing solutions are expected to be priced lower than IBM list price, "
-                    f"targeting the {net2:,.0f} {curr2} range. "
-                    f"IBM {_mname} differentiates through: AI-powered ransomware detection "
-                    f"(FlashCore Module 5), Distributed RAID 6 with >2 TB/h rebuild, "
-                    f"and IBM Storage Insights for proactive management. "
-                    f"Source: [client feedback / partner insight / RFP documentation]."
-                )
+                _comp_str = ", ".join(_comp_list) if _comp_list else "not specified"
+                if _is_san_only:
+                    _hint_comp = (
+                        f"This is a competitive SAN fabric refresh opportunity. "
+                        + (f"Incumbent vendor: {_incumbent}" + (f" ({_inc_model})" if _inc_model else "") + ". " if _incumbent else "")
+                        + f"Key competitors: {_comp_str}. "
+                        f"Competing SAN proposals are expected to be priced below IBM list, "
+                        f"targeting the {net2:,.0f} {curr2} range. "
+                        f"IBM b-type SAN switches differentiate through native IBM stack integration, "
+                        f"64 Gbps FC and NVMe-oF readiness, and IBM Storage Expert Care support. "
+                        f"Source: [client feedback / partner insight / RFP documentation]."
+                    )
+                else:
+                    _hint_comp = (
+                        f"This is a competitive all-flash storage opportunity. "
+                        + (f"Incumbent vendor: {_incumbent}" + (f" ({_inc_model})" if _inc_model else "") + ". " if _incumbent else "")
+                        + f"Key competitors: {_comp_str}. "
+                        f"Competing solutions are expected to be priced lower than IBM list price, "
+                        f"targeting the {net2:,.0f} {curr2} range. "
+                        f"IBM {_mname} differentiates through: AI-powered ransomware detection "
+                        f"(FlashCore Module 5), Distributed RAID 6 with >2 TB/h rebuild, "
+                        f"and IBM Storage Insights for proactive management. "
+                        f"Source: [client feedback / partner insight / RFP documentation]."
+                    )
                 st.markdown(
                     f'<div style="background:#edf5ff;border-left:3px solid var(--blue-60);'
                     f'padding:10px 14px;font-size:12px;color:var(--gray-100);margin-top:8px;'
                     f'line-height:1.55">'
-                    f'<b>Sugerowany tekst do sekcji B:</b><br><br>'
+                    f'<b>Suggested text for Section B:</b><br><br>'
                     f'{_hint_comp}</div>',
                     unsafe_allow_html=True,
                 )
 
         with sb4:
-            section("Sekcja A — Business Justification")
+            section("Section A — Business Justification")
 
             # Pole budżetu klienta — formatowanie z separatorami tysięcy
             def _on_budget_change():
@@ -3232,7 +3734,7 @@ with main:
 
             st.markdown(
                 '<div style="font-size:11px;color:var(--gray-70);margin-bottom:4px">'
-                '💡 Tekst auto-generowany z danych cenowych, wybranych konkurentów i budżetu — edytuj wg potrzeb.</div>',
+                '💡 Auto-generated from pricing data, selected competitors and budget — edit as needed.</div>',
                 unsafe_allow_html=True,
             )
             if not st.session_state["bid_business_just"] and loaded:
@@ -3277,16 +3779,16 @@ with main:
             if _bid_dist_val == DISTRIBUTORS[0]: _missing_bid.append("Distributor")
             if _bid_rep_val  == IBM_SALES_REPS[0]: _missing_bid.append("IBM Sales Rep")
             if not client_name: _missing_bid.append("End User (Step 2)")
-            if not st.session_state["bid_competitors_sel"]: _missing_bid.append("Główni konkurenci ✱")
+            if not st.session_state["bid_competitors_sel"]: _missing_bid.append("Key competitors ✱")
             if _missing_bid:
                 st.markdown(
-                    notif("warn", "Uzupełnij wymagane pola: <b>" + ", ".join(_missing_bid) + "</b>"),
+                    notif("warn", "Please fill in required fields: <b>" + ", ".join(_missing_bid) + "</b>"),
                     unsafe_allow_html=True,
                 )
 
-            if st.button("Generuj Special Bid Questionnaire →", type="primary",
+            if st.button("Generate Special Bid Questionnaire →", type="primary",
                          use_container_width=True, key="btn_bid"):
-                with st.spinner("Generowanie…"):
+                with st.spinner("Generating…"):
                     try:
                         # Build competitor info string from selections + manual text
                         _comp_info_final = ""
@@ -3337,16 +3839,16 @@ with main:
                         bid_fname = f"SpecialBid_{model_info.get('short', model_code)}_{slug}_{date.today():%Y%m%d}.docx"
                         st.session_state["bid_bytes"]    = bid_bytes
                         st.session_state["bid_filename"] = bid_fname
-                        st.markdown(notif("ok", f"Gotowe: <b>{bid_fname}</b>"), unsafe_allow_html=True)
+                        st.markdown(notif("ok", f"Ready: <b>{bid_fname}</b>"), unsafe_allow_html=True)
                     except Exception as e:
-                        st.error(f"Błąd: {e}")
+                        st.error(f"Error: {e}")
                         st.exception(e)
 
         if st.session_state["bid_bytes"]:
             bd1, bd2, bd3 = st.columns([1, 2, 1])
             with bd2:
                 st.download_button(
-                    "⬇  Pobierz Special Bid .docx",
+                    "⬇  Download Special Bid .docx",
                     data=st.session_state["bid_bytes"],
                     file_name=st.session_state["bid_filename"],
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -3485,7 +3987,7 @@ st.markdown("""
 <div class="ibm-footer">
   <div class="ibm-footer-row">
     <div class="ibm-footer-col" style="flex:1.4">
-      <div class="ibm-footer-brand">IBM <span>Pomagier Bob</span></div>
+      <div class="ibm-footer-brand">Ace <span>of Sales</span></div>
       <div class="ibm-footer-sub">
         IBM Storage Sales Project Centre<br>
         Automates Executive Summary, RFP/RFI, and Special Bid documents<br>
