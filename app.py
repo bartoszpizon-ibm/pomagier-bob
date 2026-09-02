@@ -2630,57 +2630,34 @@ a.pl-card:hover { color: inherit !important; }
         _is_hybrid    = project.get("is_hybrid", False)
         _drive_lbl    = (f"{_drive_qty} × {_drive_disp.group(1)} TB FCM"
                          if _drive_disp else f"{_drive_qty} × {_drive_raw}")
-        _drive_tile_lbl = "FCM Drives" if _is_hybrid else "Drives"
         _eff_tib      = project.get("effective_tib", 0.0)
         _eff_tb       = project.get("effective_tb", 0.0)
         _comp_pct     = project.get("compression_pct", 0.0)
         _dedup_pct    = project.get("dedup_pct", 0.0)
-        # Correct ratio formula: X% savings → ratio = 1 / (1 - X/100)
-        # e.g. 50% compression → 2:1, 67% → 3:1
-        # Combined savings are additive (capped at 99% to avoid div/0)
         _dr_savings   = min(_comp_pct + _dedup_pct, 99.0) / 100.0
         _dr_ratio     = (1.0 / (1.0 - _dr_savings)) if _dr_savings > 0 else 1.0
         _dr_str       = f"{_dr_ratio:.2f}:1"
         _dr_detail    = f"Compr {_comp_pct:.0f}% · Dedup {_dedup_pct:.0f}%"
 
-        # HDD tier — only when hdd_drives_count > 0 (guards against is_hybrid=True with no actual HDD data)
-        _hdd_cnt     = project.get("hdd_drives_count", 0)
-        _has_hdd     = _is_hybrid and _hdd_cnt > 0
-        _hdd_tile_fs = ""
-        if _has_hdd:
-            _hdd_dt       = project.get("hdd_drive_type", "")
-            _hdd_raw_tib  = project.get("hdd_raw_tib",  0.0)
-            _hdd_raw_tb   = project.get("hdd_raw_tb",   0.0)
-            _hdd_use_tib  = project.get("hdd_usable_tib", 0.0)
-            _hdd_use_tb   = project.get("hdd_usable_tb",  0.0)
-            _hdd_enc      = project.get("hdd_enclosure", "")
-            _hdd_cap_m    = re.match(r"([\d.]+\s*TB)", _hdd_dt)
-            _hdd_drv_lbl  = (f"{_hdd_cnt} × {_hdd_cap_m.group(1)} NL-SAS"
-                             if _hdd_cap_m and _hdd_cnt else f"{_hdd_cnt} × HDD")
-            _hdd_raw_str  = f"{_hdd_raw_tib:.1f} TiB" if _hdd_raw_tib else "—"
-            _hdd_tile_fs  = (_tile("HDD Drives",  _hdd_drv_lbl, _hdd_dt[:35] if _hdd_dt else "")
-                           + _tile("HDD Raw",     _hdd_raw_str, f"{_hdd_raw_tb:.1f} TB")
-                           + _tile("HDD Usable",  f"{_hdd_use_tib:.1f} TiB" if _hdd_use_tib else "—",
-                                                  f"{_hdd_use_tb:.1f} TB · DRAID6"))
+        _hdd_cnt  = project.get("hdd_drives_count", 0)
+        _has_hdd  = _is_hybrid and _hdd_cnt > 0
 
-        _raw_lbl    = "Full Raw Space"              if _has_hdd else "Raw"
-        _usable_lbl = "Full Usable Space (SSD+HDD)" if _has_hdd else "Usable"
-        _raw_sub    = f"{project.get('raw_tb',0):.1f} TB · SSD + HDD" if _has_hdd else f"{project.get('raw_tb',0):.1f} TB"
-        _use_sub    = f"{project.get('usable_tb',0):.1f} TB · {project.get('raid_type','DRAID6')}"
+        # ── Row 1 — NVMe flash array ──────────────────────────────────────
+        # When hybrid: raw/usable show SSD-only figures; combined totals go to HDD section
+        _raw_sub  = f"{project.get('raw_tb', 0):.1f} TB"
+        _use_sub  = f"{project.get('usable_tb', 0):.1f} TB · {project.get('raid_type', 'DRAID6')}"
 
         st.markdown(
             '<div class="ibm-metric-row">'
             + _tile("Model", model_info.get("short", model_code),
                     model_info.get("name", model_code))
-            + _tile(_drive_tile_lbl, _drive_lbl, _drive_short)
-            + _tile(_raw_lbl,    f"{project.get('raw_tib',0):.1f} TiB", _raw_sub)
-            + _tile(_usable_lbl, f"{project.get('usable_tib',0):.1f} TiB", _use_sub)
-            + _hdd_tile_fs
+            + _tile("FCM Drives" if _is_hybrid else "Drives", _drive_lbl, _drive_short)
+            + _tile("Raw",    f"{project.get('raw_tib', 0):.1f} TiB", _raw_sub)
+            + _tile("Usable", f"{project.get('usable_tib', 0):.1f} TiB", _use_sub)
             + _tile("Effective", f"{_eff_tib:.1f} TiB" if _eff_tib else "—",
                                  f"{_eff_tb:.1f} TB" if _eff_tb else "upload capacity file")
-            + (""  if _has_hdd else
-               _tile("Data Reduction", _dr_str if (_comp_pct or _dedup_pct) else "—",
-                     _dr_detail if (_comp_pct or _dedup_pct) else ""))
+            + _tile("Data Reduction", _dr_str if (_comp_pct or _dedup_pct) else "—",
+                    _dr_detail if (_comp_pct or _dedup_pct) else "")
             + _tile("Cache", f"{project.get('cache_gb', 0)} GB" if project.get('cache_gb') else "—",
                     "per I/O group")
             + _tile("Support", _sup_name,
@@ -2698,6 +2675,46 @@ a.pl-card:hover { color: inherit !important; }
             + '</div>',
             unsafe_allow_html=True,
         )
+
+        # ── Row 2 — HDD expansion shelf (hybrid only) ─────────────────────
+        if _has_hdd:
+            st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+            section("Configuration at a Glance — HDD Expansion Shelf")
+            _hdd_dt      = project.get("hdd_drive_type", "")
+            _hdd_raw_tib = project.get("hdd_raw_tib",    0.0)
+            _hdd_raw_tb  = project.get("hdd_raw_tb",     0.0)
+            _hdd_use_tib = project.get("hdd_usable_tib", 0.0)
+            _hdd_use_tb  = project.get("hdd_usable_tb",  0.0)
+            _hdd_enc     = project.get("hdd_enclosure",  "")
+            _hdd_cap_m   = re.match(r"([\d.]+\s*TB)", _hdd_dt)
+            _hdd_drv_lbl = (f"{_hdd_cnt} × {_hdd_cap_m.group(1)} NL-SAS"
+                            if _hdd_cap_m and _hdd_cnt else f"{_hdd_cnt} × HDD")
+            # Combined SSD+HDD totals
+            _total_raw_tib = project.get("raw_tib",    0.0) + _hdd_raw_tib
+            _total_raw_tb  = project.get("raw_tb",     0.0) + _hdd_raw_tb
+            _total_use_tib = project.get("usable_tib", 0.0) + _hdd_use_tib
+            _total_use_tb  = project.get("usable_tb",  0.0) + _hdd_use_tb
+            st.markdown(
+                '<div class="ibm-metric-row">'
+                + _tile("Enclosure", _hdd_enc if _hdd_enc else "Expansion shelf",
+                        "NL-SAS HDD · attached to FlashSystem")
+                + _tile("HDD Drives",  _hdd_drv_lbl,
+                        _hdd_dt[:40] if _hdd_dt else "NL-SAS")
+                + _tile("HDD Raw",
+                        f"{_hdd_raw_tib:.1f} TiB",
+                        f"{_hdd_raw_tb:.1f} TB")
+                + _tile("HDD Usable",
+                        f"{_hdd_use_tib:.1f} TiB" if _hdd_use_tib else "—",
+                        f"{_hdd_use_tb:.1f} TB · DRAID6")
+                + _tile("Combined Raw (SSD+HDD)",
+                        f"{_total_raw_tib:.1f} TiB",
+                        f"{_total_raw_tb:.1f} TB")
+                + _tile("Combined Usable (SSD+HDD)",
+                        f"{_total_use_tib:.1f} TiB",
+                        f"{_total_use_tb:.1f} TB")
+                + '</div>',
+                unsafe_allow_html=True,
+            )
 
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
@@ -4147,6 +4164,8 @@ st.markdown("""
   <div class="ibm-footer-copy">
     IBM, FlashSystem, and FlashCore are trademarks of International Business Machines Corporation.
     Prices shown are list prices from IBM e-config and do not constitute a binding offer.
+    &nbsp;·&nbsp; Developed by <b>Bartosz Pizon</b> ·
+    <a href="mailto:bartosz.pizon@ibm.com" style="color:var(--gray-50);text-decoration:none">bartosz.pizon@ibm.com</a>
   </div>
 </div>
 """, unsafe_allow_html=True)
