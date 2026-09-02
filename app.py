@@ -1711,7 +1711,7 @@ st.markdown("""
       <span class="ibm-hero-step-num">1</span>
       <div>
         <div class="ibm-hero-step-title">Upload e-config CSV</div>
-        <div class="ibm-hero-step-sub">FlashSystem · SAN b-type · Storage Scale</div>
+        <div class="ibm-hero-step-sub">FlashSystem · SAN b-type · Storage Scale<br>+ StorM Capacity &amp; Performance Report</div>
       </div>
     </div>
     <div class="ibm-hero-step-arrow">→</div>
