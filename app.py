@@ -782,47 +782,71 @@ body [data-baseweb="datepicker"] [data-baseweb="select"] div {
 [data-testid="stFileUploader"] button * {
   color: #4589ff !important;
 }
-/* upload step badge */
+/* ── Upload step badge ───────────────────────────────────────────────────── */
+.upload-step-wrap {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0 !important;
+  margin-bottom: 0 !important;
+}
+.upload-step-num {
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  color: #8d8d8d !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.10em !important;
+  margin-bottom: 4px !important;
+}
+.upload-step-num.uploaded { color: #198038 !important; }
+
 .upload-step-badge {
-  display: block !important;
+  display: flex !important;
+  align-items: flex-start !important;
   width: 100% !important;
   box-sizing: border-box !important;
+  padding: 12px 16px !important;
+  border-radius: 3px !important;
+  margin-bottom: 0 !important;
+  transition: background .2s, color .2s, border-color .2s;
+  gap: 10px !important;
+}
+.upload-step-badge-icon {
+  font-size: 18px !important;
+  line-height: 1 !important;
+  margin-top: 1px !important;
+  flex-shrink: 0 !important;
+}
+.upload-step-badge-body {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 2px !important;
+}
+.upload-step-badge-title {
   font-size: 13px !important;
   font-weight: 700 !important;
-  letter-spacing: 0.04em !important;
-  text-transform: uppercase !important;
-  padding: 7px 14px !important;
-  border-radius: 2px !important;
-  margin-bottom: 0 !important;
-  text-align: left !important;
-  transition: background .2s, color .2s, border-color .2s;
+  letter-spacing: 0.02em !important;
+  line-height: 1.3 !important;
+}
+.upload-step-badge-sub {
+  font-size: 11px !important;
+  font-weight: 400 !important;
+  opacity: .8 !important;
+  line-height: 1.4 !important;
 }
 .upload-step-badge.required {
   background: #dde9ff !important;
-  color: #4589ff !important;
-  border: 1.5px solid #4589ff88 !important;
+  color: #0043ce !important;
+  border: 1.5px solid #a6c2ff !important;
 }
 .upload-step-badge.optional {
-  background: #e8e8e8 !important;
+  background: #f4f4f4 !important;
   color: #525252 !important;
   border: 1.5px solid #c6c6c6 !important;
 }
-/* Uploaded state — green background */
 .upload-step-badge.uploaded {
   background: #defbe6 !important;
-  color: #198038 !important;
-  border: 1.5px solid #24a148 !important;
-}
-.upload-step-num {
-  font-size: 11px !important;
-  font-weight: 600 !important;
-  color: #8d8d8d !important;
-  text-transform: uppercase !important;
-  letter-spacing: 0.08em !important;
-  margin-bottom: 3px !important;
-}
-.upload-step-num.uploaded {
-  color: #198038 !important;
+  color: #0e6027 !important;
+  border: 1.5px solid #42be65 !important;
 }
 
 /* ── Slider ──────────────────────────────────────────────────────────────── */
@@ -1839,16 +1863,31 @@ with main:
     border-radius: 2px;
     margin-top: auto;
 }
-/* hide the Streamlit trigger buttons — interaction via HTML card onclick */
-[data-testid="stHorizontalBlock"]:has([aria-label="pl_trigger_flashsystem"]) {
-    height: 0 !important; overflow: hidden !important;
-    margin: 0 !important; padding: 0 !important;
+/* pl-card as anchor — reset link styles */
+a.pl-card {
+    text-decoration: none !important;
+    color: inherit !important;
 }
+a.pl-card:hover { color: inherit !important; }
 </style>
 """, unsafe_allow_html=True)
 
-    # ── HTML card grid (display only) ────────────────────────────────────────
-    _pl_cur    = st.session_state["product_line"]
+    # ── Handle ?pl= query param — set product line and clear ─────────────────
+    _pl_cur = st.session_state["product_line"]
+    _qp_pl  = st.query_params.get("pl", "")
+    if _qp_pl in _LINE_OPTIONS and _qp_pl not in ("fusion", "power"):
+        if _pl_cur != _qp_pl:
+            st.session_state["product_line"]   = _qp_pl
+            st.session_state["project_loaded"] = False
+            st.session_state["project_data"]   = {}
+            st.session_state["exec_bytes"]     = None
+            st.session_state["rfp_bytes"]      = None
+            st.session_state["bid_bytes"]      = None
+        st.query_params.clear()
+        st.rerun()
+    _pl_cur = st.session_state["product_line"]
+
+    # ── HTML card grid — each active card is a ?pl= link ─────────────────────
     _cards_html = '<div class="pl-grid">'
     for _pl_key, (_pl_icon, _pl_name, _pl_desc, _pl_models) in _LINE_OPTIONS.items():
         _active = "active" if _pl_cur == _pl_key else ""
@@ -1859,40 +1898,22 @@ with main:
             if _coming else
             f'<div class="pl-models">{_pl_models}</div>'
         )
-        _cards_html += (
-            f'<div class="pl-card {_active} {_soon}">'
+        _inner = (
             f'  <div class="pl-icon">{_pl_icon}</div>'
             f'  <div class="pl-name">{_pl_name}</div>'
             f'  <div class="pl-desc">{_pl_desc}</div>'
             f'  {_bottom}'
-            f'</div>'
         )
+        if _coming:
+            _cards_html += f'<div class="pl-card {_soon}">{_inner}</div>'
+        else:
+            _cards_html += (
+                f'<a class="pl-card {_active}" href="?pl={_pl_key}">'
+                f'{_inner}</a>'
+            )
     _cards_html += '</div>'
     st.markdown(_cards_html, unsafe_allow_html=True)
 
-    # ── Actual Streamlit buttons (functional, visible) ───────────────────────
-    _pl_cols = st.columns(4, gap="small")
-    for _pl_key, (_pl_icon, _pl_name, _pl_desc, _pl_models) in _LINE_OPTIONS.items():
-        _pl_is_active = (_pl_cur == _pl_key)
-        _pl_coming    = _pl_key in ("fusion", "power")
-        _pl_col_idx   = list(_LINE_OPTIONS.keys()).index(_pl_key)
-        with _pl_cols[_pl_col_idx]:
-            _pl_btn_type = "primary" if _pl_is_active else "secondary"
-            _pl_label    = f"{_pl_icon} {_pl_name}" + (" *(soon)*" if _pl_coming else "")
-            if st.button(_pl_label, key=f"pl_btn_{_pl_key}",
-                         use_container_width=True,
-                         type=_pl_btn_type,
-                         disabled=_pl_coming):
-                if st.session_state["product_line"] != _pl_key:
-                    st.session_state["product_line"]   = _pl_key
-                    st.session_state["project_loaded"] = False
-                    st.session_state["project_data"]   = {}
-                    st.session_state["exec_bytes"]     = None
-                    st.session_state["rfp_bytes"]      = None
-                    st.session_state["bid_bytes"]      = None
-                    st.rerun()
-
-    _pl_icon_cur, _pl_name_cur, _pl_desc_cur, _ = _LINE_OPTIONS[_pl_cur]
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
     # =========================================================================
@@ -1906,21 +1927,29 @@ with main:
         "padding-bottom:0 !important;"
     )
 
-    # Helper: build badge HTML — green when file already uploaded
-    def _upload_badge(step_label: str, badge_text: str, base_cls: str, file_obj) -> str:
-        done = file_obj is not None
-        num_cls   = "upload-step-num uploaded"   if done else "upload-step-num"
-        badge_cls = f"upload-step-badge uploaded" if done else f"upload-step-badge {base_cls}"
-        prefix    = "✓ &nbsp;" if done else ""
+    # Helper: build badge HTML — green when file uploaded
+    def _upload_badge(step_label: str, badge_text: str, base_cls: str, file_obj,
+                      sub: str = "") -> str:
+        done      = file_obj is not None
+        num_cls   = "upload-step-num uploaded" if done else "upload-step-num"
+        badge_cls = "upload-step-badge uploaded" if done else f"upload-step-badge {base_cls}"
+        icon      = "✅" if done else ("📄" if "CSV" in badge_text else "📊")
+        sub_html  = f'<div class="upload-step-badge-sub">{sub}</div>' if sub else ""
         return (
-            f'<div style="{_badge_wrap}">'
+            f'<div class="upload-step-wrap">'
             f'<div class="{num_cls}">{step_label}</div>'
-            f'<div class="{badge_cls}">{prefix}{badge_text}</div>'
+            f'<div class="{badge_cls}">'
+            f'  <div class="upload-step-badge-icon">{icon}</div>'
+            f'  <div class="upload-step-badge-body">'
+            f'    <div class="upload-step-badge-title">{badge_text}</div>'
+            f'    {sub_html}'
+            f'  </div>'
+            f'</div>'
             f'</div>'
         )
 
     if _is_scale:
-        # Scale: 2 files — CSV + single combined Capacity & Performance XLSX
+        # Scale: 2 files — CSV + combined Capacity & Performance XLSX
         u1, u2 = st.columns([1, 1], gap="large")
         with u1:
             csv_file = st.file_uploader(
@@ -1930,8 +1959,9 @@ with main:
                 label_visibility="collapsed",
             )
             st.markdown(
-                _upload_badge("Step 1 of 2", "Upload e-config CSV",
-                              "required", csv_file),
+                _upload_badge("Step 1 of 2 · Required", "e-config CSV",
+                              "required", csv_file,
+                              sub="IBM e-config Cloud → Export CSV"),
                 unsafe_allow_html=True,
             )
         with u2:
@@ -1942,8 +1972,9 @@ with main:
                 label_visibility="collapsed",
             )
             st.markdown(
-                _upload_badge("Step 2 of 2", "StorM Capacity &amp; Performance Report",
-                              "required", capacity_file),
+                _upload_badge("Step 2 of 2 · Required", "StorM Capacity &amp; Performance Report",
+                              "required", capacity_file,
+                              sub="Storage Modeller → Export XLSX (combined report)"),
                 unsafe_allow_html=True,
             )
         perf_file = None  # included in capacity XLSX for Scale
@@ -1958,8 +1989,9 @@ with main:
                 label_visibility="collapsed",
             )
             st.markdown(
-                _upload_badge("Required", "Upload e-config CSV",
-                              "required", csv_file),
+                _upload_badge("Required", "e-config CSV",
+                              "required", csv_file,
+                              sub="IBM e-config Cloud → Export CSV"),
                 unsafe_allow_html=True,
             )
         with u2:
@@ -1971,7 +2003,8 @@ with main:
             )
             st.markdown(
                 _upload_badge("Optional", "StorM Capacity Report",
-                              "optional", capacity_file),
+                              "optional", capacity_file,
+                              sub="Storage Modeller → Capacity report XLSX"),
                 unsafe_allow_html=True,
             )
         with u3:
@@ -1983,7 +2016,8 @@ with main:
             )
             st.markdown(
                 _upload_badge("Optional", "StorM Performance Report",
-                              "optional", perf_file),
+                              "optional", perf_file,
+                              sub="Storage Modeller → Performance report XLSX"),
                 unsafe_allow_html=True,
             )
 
