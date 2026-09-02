@@ -196,10 +196,10 @@ p, li { color: var(--gray-100) !important; font-size: 16px !important; line-heig
   gap: 0; margin-top: 32px; flex-wrap: wrap;
 }
 .ibm-hero-step {
-  display: flex; align-items: flex-start; gap: 20px;
+  display: flex; align-items: flex-start; gap: 14px;
   background: var(--white); border: 1px solid var(--gray-20);
   border-top: 3px solid var(--blue-60);
-  border-radius: 4px; padding: 24px 28px;
+  border-radius: 4px; padding: 20px 18px;
   flex: 1; min-width: 240px; max-width: 340px;
 }
 .ibm-hero-step-num {
