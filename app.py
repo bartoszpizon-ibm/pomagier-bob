@@ -1864,32 +1864,34 @@ with main:
     border-radius: 2px;
     margin-top: auto;
 }
-/* pl-card as anchor — reset link styles */
-a.pl-card {
-    text-decoration: none !important;
-    color: inherit !important;
+/* ── Buttons under the cards — transparent, same height ─────────────────── */
+/* Cards are rendered first (HTML), then st.columns buttons pulled up        */
+/* via negative margin so they sit exactly on top of cards (z-index higher). */
+[data-testid="stHorizontalBlock"]:has([aria-label^="pl_btn_"]) {
+    margin-top: -134px !important;   /* pull row up over the cards */
+    gap: 10px !important;
+    padding: 0 !important;
 }
-a.pl-card:hover { color: inherit !important; }
+[data-testid="stHorizontalBlock"]:has([aria-label^="pl_btn_"]) > [data-testid="stColumn"] {
+    padding: 0 !important;
+}
+[data-testid="stHorizontalBlock"]:has([aria-label^="pl_btn_"]) button {
+    min-height: 134px !important;    /* match card height */
+    height: 134px !important;
+    width: 100% !important;
+    opacity: 0 !important;           /* invisible but clickable */
+    cursor: pointer !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
-    # ── Handle ?pl= query param — set product line and clear ─────────────────
-    _pl_cur = st.session_state["product_line"]
-    _qp_pl  = st.query_params.get("pl", "")
-    if _qp_pl in _LINE_OPTIONS and _qp_pl not in ("fusion", "power"):
-        if _pl_cur != _qp_pl:
-            st.session_state["product_line"]   = _qp_pl
-            st.session_state["project_loaded"] = False
-            st.session_state["project_data"]   = {}
-            st.session_state["exec_bytes"]     = None
-            st.session_state["rfp_bytes"]      = None
-            st.session_state["bid_bytes"]      = None
-        st.query_params.clear()
-        st.rerun()
     _pl_cur = st.session_state["product_line"]
 
-    # ── HTML card grid — each active card is a ?pl= link ─────────────────────
-    _cards_html = '<div class="pl-grid">'
+    # ── HTML card grid (visual, non-interactive) ──────────────────────────────
+    _cards_html = '<div class="pl-grid" style="margin-bottom:0">'
     for _pl_key, (_pl_icon, _pl_name, _pl_desc, _pl_models) in _LINE_OPTIONS.items():
         _active = "active" if _pl_cur == _pl_key else ""
         _coming = _pl_key in ("fusion", "power")
@@ -1899,21 +1901,34 @@ a.pl-card:hover { color: inherit !important; }
             if _coming else
             f'<div class="pl-models">{_pl_models}</div>'
         )
-        _inner = (
+        _cards_html += (
+            f'<div class="pl-card {_active} {_soon}">'
             f'  <div class="pl-icon">{_pl_icon}</div>'
             f'  <div class="pl-name">{_pl_name}</div>'
             f'  <div class="pl-desc">{_pl_desc}</div>'
             f'  {_bottom}'
+            f'</div>'
         )
-        if _coming:
-            _cards_html += f'<div class="pl-card {_soon}">{_inner}</div>'
-        else:
-            _cards_html += (
-                f'<a class="pl-card {_active}" href="?pl={_pl_key}">'
-                f'{_inner}</a>'
-            )
     _cards_html += '</div>'
     st.markdown(_cards_html, unsafe_allow_html=True)
+
+    # ── Streamlit buttons — pulled up over the cards via negative margin ──────
+    _pl_cols = st.columns(4, gap="small")
+    for _pl_key, (_pl_icon, _pl_name, _pl_desc, _pl_models) in _LINE_OPTIONS.items():
+        _pl_coming  = _pl_key in ("fusion", "power")
+        _pl_col_idx = list(_LINE_OPTIONS.keys()).index(_pl_key)
+        with _pl_cols[_pl_col_idx]:
+            if st.button("​", key=f"pl_btn_{_pl_key}",
+                         use_container_width=True,
+                         disabled=_pl_coming):
+                if st.session_state["product_line"] != _pl_key:
+                    st.session_state["product_line"]   = _pl_key
+                    st.session_state["project_loaded"] = False
+                    st.session_state["project_data"]   = {}
+                    st.session_state["exec_bytes"]     = None
+                    st.session_state["rfp_bytes"]      = None
+                    st.session_state["bid_bytes"]      = None
+                    st.rerun()
 
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
