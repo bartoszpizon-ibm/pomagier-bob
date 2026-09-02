@@ -2241,27 +2241,27 @@ a.pl-card:hover { color: inherit !important; }
                     unsafe_allow_html=True,
                 )
 
-    with pd3:
-        # ── Price basis ───────────────────────────────────────────────────────
+    @st.fragment
+    def _pricing_fragment():
+        """Isolated pricing column — reruns only this fragment on discount/MEP changes."""
         _proj_pd3  = st.session_state.get("project_data") or {}
+        _loaded    = st.session_state.get("project_loaded", False)
         _lp_pd3    = (
             _proj_pd3.get("list_price_hw", 0)
             + _proj_pd3.get("list_price_sw", 0)
             + _proj_pd3.get("list_price_support", 0)
-        ) if loaded else 0.0
-        _ship_pd3  = _proj_pd3.get("shipping", 0) if loaded else 0.0
+        ) if _loaded else 0.0
+        _ship_pd3  = _proj_pd3.get("shipping", 0) if _loaded else 0.0
         _nsys_pd3  = int(st.session_state.get("num_systems", 1))
-        _curr_pd3  = _proj_pd3.get("currency", "EUR") if loaded else "EUR"
+        _curr_pd3  = _proj_pd3.get("currency", "EUR") if _loaded else "EUR"
 
-        # Detect config type for MEP labelling
-        _pd3_san_switches = _proj_pd3.get("san_switches", []) if loaded else []
-        _pd3_has_fs       = bool(_proj_pd3.get("model_code", "")) if loaded else False
+        _pd3_san_switches = _proj_pd3.get("san_switches", []) if _loaded else []
+        _pd3_has_fs       = bool(_proj_pd3.get("model_code", "")) if _loaded else False
         _pd3_san_only     = bool(_pd3_san_switches) and not _pd3_has_fs
         _pd3_fs_and_san   = _pd3_has_fs and bool(_pd3_san_switches)
 
-        # Pre-compute SAN EU price for display (read-only, same discount_pct)
         _pd3_san_eu = 0.0
-        if loaded and _pd3_san_switches:
+        if _loaded and _pd3_san_switches:
             _d_pd3 = float(st.session_state.get("discount_pct", 60.0))
             for _sw_p in _pd3_san_switches:
                 _sw_p_lp  = (_sw_p.get("list_price_hw", 0)
@@ -2271,57 +2271,31 @@ a.pl-card:hover { color: inherit !important; }
                 _sw_p_sh  = _sw_p.get("shipping", 0.0)
                 _pd3_san_eu += _sw_p_lp * _sw_p_qty * (1 - _d_pd3 / 100) + _sw_p_sh * _sw_p_qty
 
-        # ── Callback helpers ─────────────────────────────────────────────────
         def _eu_from_disc(disc):
-            """EU price = (lp × (1-d) + ship) × n   [discount applied directly to list → EU]"""
             if _lp_pd3 <= 0:
                 return 0.0
             return round((_lp_pd3 * (1 - disc / 100) + _ship_pd3) * _nsys_pd3, 0)
 
         def _disc_from_eu(eu):
-            """disc = (1 - (eu/n - ship) / lp) × 100"""
             if _lp_pd3 <= 0 or _nsys_pd3 <= 0:
                 return st.session_state["discount_pct"]
             d = (1.0 - (eu / _nsys_pd3 - _ship_pd3) / _lp_pd3) * 100.0
             return round(max(5.0, min(95.0, d)), 1)
 
         def _on_disc_change():
-            d   = float(st.session_state["disc_num"])
-            m   = float(st.session_state.get("eu_margin_pct", 0.0))
+            d = float(st.session_state["disc_num"])
             st.session_state["discount_pct"] = d
-            # MEP = EU price = list × (1-d) + ship
             new_mep = _eu_from_disc(d)
             st.session_state["mep_input"]      = new_mep
             st.session_state["mep_text_input"] = f"{int(new_mep):,}".replace(",", " ")
 
         def _on_mep_change():
             mep = float(st.session_state["mep_input"])
-            # MEP IS the EU price — derive discount from it directly
             d   = _disc_from_eu(mep)
             st.session_state["discount_pct"] = d
             st.session_state["disc_num"]     = d
             st.session_state["mep_input"]    = mep
 
-        # ── Init / first-load ────────────────────────────────────────────────
-        if "disc_num" not in st.session_state:
-            st.session_state["disc_num"] = float(st.session_state["discount_pct"])
-        # Init MEP = EU price from current discount
-        _mep_from_disc = _eu_from_disc(st.session_state["discount_pct"])
-        if "mep_input" not in st.session_state or (loaded and _mep_from_disc > 0 and st.session_state.get("mep_input", 0) == 0):
-            st.session_state["mep_input"] = _mep_from_disc
-            st.session_state["mep_text_input"] = f"{int(_mep_from_disc):,}".replace(",", " ")
-
-        # Notif bar
-        disc = float(st.session_state["discount_pct"])
-        if loaded:
-            if disc > 65:
-                st.markdown(notif("warn", f"<b>{disc:.1f}%</b> — Special Bid questionnaire required."), unsafe_allow_html=True)
-            elif disc > 60:
-                st.markdown(notif("info", f"<b>{disc:.1f}%</b> — above standard 60% baseline."), unsafe_allow_html=True)
-            else:
-                st.markdown(notif("ok",   f"<b>{disc:.1f}%</b> — within standard baseline."), unsafe_allow_html=True)
-
-        # MEP field — text input with currency formatting
         def _on_mep_text_change():
             raw = st.session_state.get("mep_text_input", "")
             cleaned = re.sub(r"[^\d.]", "", raw.replace(" ", "").replace(",", ""))
@@ -2331,28 +2305,64 @@ a.pl-card:hover { color: inherit !important; }
                 return
             st.session_state["mep_input"] = val
             _on_mep_change()
-            # reformat display with thousand separators
             st.session_state["mep_text_input"] = f"{int(val):,}".replace(",", " ")
 
+        def _on_systems_change():
+            n = int(st.session_state["num_systems_input"])
+            st.session_state["num_systems"] = n
+            _proj_s = st.session_state.get("project_data") or {}
+            _lp_s   = (_proj_s.get("list_price_hw", 0)
+                     + _proj_s.get("list_price_sw", 0)
+                     + _proj_s.get("list_price_support", 0))
+            _ship_s = _proj_s.get("shipping", 0)
+            d = float(st.session_state["discount_pct"])
+            new_mep = round((_lp_s * (1 - d / 100) + _ship_s) * n, 0)
+            st.session_state["mep_input"]      = new_mep
+            st.session_state["mep_text_input"] = f"{int(new_mep):,}".replace(",", " ")
+
+        def _on_margin_change():
+            st.session_state["eu_margin_pct"] = float(st.session_state["eu_margin_pct_input"])
+
+        # ── Init keys ────────────────────────────────────────────────────────
+        if "disc_num" not in st.session_state:
+            st.session_state["disc_num"] = float(st.session_state["discount_pct"])
+        if "num_systems_input" not in st.session_state:
+            st.session_state["num_systems_input"] = int(st.session_state["num_systems"])
+        if "eu_margin_pct_input" not in st.session_state:
+            st.session_state["eu_margin_pct_input"] = float(st.session_state["eu_margin_pct"])
+        _mep_from_disc = _eu_from_disc(st.session_state["discount_pct"])
+        if "mep_input" not in st.session_state or (_loaded and _mep_from_disc > 0 and st.session_state.get("mep_input", 0) == 0):
+            st.session_state["mep_input"] = _mep_from_disc
+            st.session_state["mep_text_input"] = f"{int(_mep_from_disc):,}".replace(",", " ")
+
+        # ── Notif ─────────────────────────────────────────────────────────────
+        disc = float(st.session_state["discount_pct"])
+        if _loaded:
+            if disc > 65:
+                st.markdown(notif("warn", f"<b>{disc:.1f}%</b> — Special Bid questionnaire required."), unsafe_allow_html=True)
+            elif disc > 60:
+                st.markdown(notif("info", f"<b>{disc:.1f}%</b> — above standard 60% baseline."), unsafe_allow_html=True)
+            else:
+                st.markdown(notif("ok",   f"<b>{disc:.1f}%</b> — within standard baseline."), unsafe_allow_html=True)
+
+        # ── MEP text input ────────────────────────────────────────────────────
         _mep_display = f"{int(st.session_state.get('mep_input', 0)):,}".replace(",", " ")
-        # MEP field label adapts to config type
         _mep_label = (
-            f"Requested MEP — SAN ({_curr_pd3})"     if _pd3_san_only else
+            f"Requested MEP — SAN ({_curr_pd3})"         if _pd3_san_only else
             f"Requested MEP — FlashSystem ({_curr_pd3})" if _pd3_fs_and_san else
             f"Requested MEP ({_curr_pd3})"
         )
         st.text_input(
             _mep_label,
             value=_mep_display,
-            disabled=not loaded,
+            disabled=not _loaded,
             help="Enter the requested MEP — Discount (%) updates automatically.",
             key="mep_text_input",
             on_change=_on_mep_text_change,
             placeholder="0",
         )
 
-        # For FS+SAN: show SAN EU price read-only below FS MEP
-        if loaded and _pd3_fs_and_san and _pd3_san_eu > 0:
+        if _loaded and _pd3_fs_and_san and _pd3_san_eu > 0:
             st.markdown(
                 f'<div style="font-size:11px;color:var(--gray-70);margin:2px 0 6px;'
                 f'border-left:3px solid var(--blue-60);padding:4px 8px;background:#f0f5ff;">'
@@ -2360,12 +2370,12 @@ a.pl-card:hover { color: inherit !important; }
                 f'<span style="font-weight:600;color:var(--gray-100)">'
                 f'{_pd3_san_eu:,.0f} {_curr_pd3}</span>'
                 f'&nbsp;·&nbsp;{sum(sw.get("qty",1) for sw in _pd3_san_switches)}× switch(es)'
-                f'&nbsp;·&nbsp;same {float(st.session_state.get("discount_pct",60)):.1f}% discount'
+                f'&nbsp;·&nbsp;same {disc:.1f}% discount'
                 f'</div>',
                 unsafe_allow_html=True,
             )
 
-        # ── Systems / Discount / EU Margin — inside pd3, below MEP ──────────
+        # ── Systems / Discount / EU Margin ────────────────────────────────────
         st.markdown(
             '<div style="font-size:11px;color:var(--gray-70);margin:8px 0 2px">Price adjustments</div>',
             unsafe_allow_html=True,
@@ -2373,27 +2383,11 @@ a.pl-card:hover { color: inherit !important; }
         _ns_col2, _disc_col2, _em_col2 = st.columns(3, gap="small")
 
         with _ns_col2:
-            if "num_systems_input" not in st.session_state:
-                st.session_state["num_systems_input"] = int(st.session_state["num_systems"])
-
-            def _on_systems_change():
-                n = int(st.session_state["num_systems_input"])
-                st.session_state["num_systems"] = n
-                _proj_s  = st.session_state.get("project_data") or {}
-                _lp_s    = (_proj_s.get("list_price_hw", 0)
-                          + _proj_s.get("list_price_sw", 0)
-                          + _proj_s.get("list_price_support", 0))
-                _ship_s  = _proj_s.get("shipping", 0)
-                d = float(st.session_state["discount_pct"])
-                new_mep = round((_lp_s * (1 - d / 100) + _ship_s) * n, 0)
-                st.session_state["mep_input"]      = new_mep
-                st.session_state["mep_text_input"] = f"{int(new_mep):,}".replace(",", " ")
-
             st.number_input(
                 "Systems",
                 min_value=1, max_value=99,
                 step=1,
-                disabled=not loaded,
+                disabled=not _loaded,
                 help="Multiplies total price. When > 1, a note is added to the Exec Summary.",
                 key="num_systems_input",
                 on_change=_on_systems_change,
@@ -2406,32 +2400,26 @@ a.pl-card:hover { color: inherit !important; }
                 min_value=5.0, max_value=95.0,
                 step=0.5,
                 format="%.1f",
-                disabled=not loaded,
+                disabled=not _loaded,
                 key="disc_num",
                 on_change=_on_disc_change,
             )
 
         with _em_col2:
-            if "eu_margin_pct_input" not in st.session_state:
-                st.session_state["eu_margin_pct_input"] = float(st.session_state["eu_margin_pct"])
-
-            def _on_margin_change():
-                m = float(st.session_state["eu_margin_pct_input"])
-                st.session_state["eu_margin_pct"] = m
-                # EU price = list*(1-d)+ship stays fixed when margin changes;
-                # margin only affects how BP is split from EU — no need to update MEP
-
             st.number_input(
                 "EU Margin (%)",
                 min_value=0.0, max_value=100.0,
                 step=0.5,
                 format="%.1f",
-                disabled=not loaded,
+                disabled=not _loaded,
                 help="Partner margin deducted from EU price to get BP price.",
                 key="eu_margin_pct_input",
                 on_change=_on_margin_change,
             )
             st.session_state["eu_margin_pct"] = st.session_state["eu_margin_pct_input"]
+
+    with pd3:
+        _pricing_fragment()
 
     # =========================================================================
     # STEP 3 — only shown after parsing
