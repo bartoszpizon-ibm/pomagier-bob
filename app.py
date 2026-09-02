@@ -1,5 +1,5 @@
 """
-Ace of Sales — Infrastructure Sales Assistant · Streamlit UI
+IBM Ace of Sales — Infrastructure Sales Assistant · Streamlit UI
 IBM Storage Sales Project Centre
 """
 
@@ -33,7 +33,7 @@ from app.knowledge.product_db import get_model_info, get_docs, get_san_switch_in
 from app.generators.san_rfp_generator import generate_san_rfp
 
 # ─────────────────────────────────────────────────────────────────────────────
-st.set_page_config(page_title="Ace of Sales", page_icon="♠",
+st.set_page_config(page_title="IBM Ace of Sales", page_icon="♠",
                    layout="wide", initial_sidebar_state="collapsed")
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1743,7 +1743,7 @@ def step_cls(done, active):
 st.markdown("""
 <div class="ibm-hero">
   <div class="ibm-hero-eyebrow">IBM Storage · Sales Automation</div>
-  <h1 class="ibm-hero">Ace of Sales — Infrastructure Sales Assistant</h1>
+  <h1 class="ibm-hero">IBM Ace of Sales — Project Center</h1>
   <div class="ibm-hero-steps">
     <div class="ibm-hero-step">
       <span class="ibm-hero-step-num">1</span>
@@ -1783,7 +1783,7 @@ with main:
         "flashsystem": (
             "⚡", "FlashSystem + SAN",
             "All-NVMe block storage + SAN b-type switches",
-            "FS5000 · FS5600 · FS7600 · FS9600 · FSc200<br>SAN24B-7 · SAN64B-7 · SAN256B-7",
+            "FS5000 · FS5600 · FS7600 · FS9600 · FSc200<br>SAN24B-7 · SAN64B-7 · SAN128B-7",
         ),
         "scale": (
             "🗂️", "Storage Scale",
@@ -2497,9 +2497,10 @@ a.pl-card:hover { color: inherit !important; }
                  + project.get("list_price_sw",0)
                  + project.get("list_price_support",0))
     _shipping   = project.get("shipping", 0)
-    # EU price = list × (1 - discount%) + shipping  [discount applied to list → EU directly]
-    _eu         = float(st.session_state.get("mep_input") or
-                        (lp * (1 - discount_pct / 100) + _shipping) * _num_sys)
+    # EU price — always derived from discount_pct (source of truth updated by the pricing fragment).
+    # mep_input is only a display mirror; reading it here would show a stale value until the next
+    # full page rerun because the pricing fragment reruns in isolation.
+    _eu         = (lp * (1 - discount_pct / 100) + _shipping) * _num_sys
     # BP = EU × (1 - margin%)
     _bp         = _eu * (1 - _eu_margin / 100) if _eu_margin > 0 else _eu
     _curr       = project.get("currency", "EUR")
