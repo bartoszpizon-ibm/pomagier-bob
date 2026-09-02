@@ -193,26 +193,27 @@ p, li { color: var(--gray-100) !important; font-size: 16px !important; line-heig
                 font-family: 'IBM Plex Sans', sans-serif; }
 .ibm-hero-steps {
   display: flex; align-items: stretch; justify-content: center;
-  gap: 0; margin-top: 28px; flex-wrap: wrap;
+  gap: 0; margin-top: 32px; flex-wrap: wrap;
 }
 .ibm-hero-step {
-  display: flex; align-items: center; gap: 16px;
+  display: flex; align-items: flex-start; gap: 20px;
   background: var(--white); border: 1px solid var(--gray-20);
-  border-radius: 4px; padding: 18px 24px;
-  flex: 1; min-width: 210px; max-width: 300px;
+  border-top: 3px solid var(--blue-60);
+  border-radius: 4px; padding: 24px 28px;
+  flex: 1; min-width: 240px; max-width: 340px;
 }
 .ibm-hero-step-num {
-  width: 36px; height: 36px; border-radius: 50%;
+  width: 40px; height: 40px; border-radius: 50%;
   background: var(--blue-60); color: #fff;
-  font-size: 16px; font-weight: 600;
+  font-size: 17px; font-weight: 600;
   display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
+  flex-shrink: 0; margin-top: 2px;
 }
-.ibm-hero-step-title { font-size: 14px; font-weight: 600; color: var(--gray-100); margin-bottom: 3px; }
-.ibm-hero-step-sub   { font-size: 11.5px; color: var(--gray-70); line-height: 1.45; }
+.ibm-hero-step-title { font-size: 15px; font-weight: 600; color: var(--gray-100); margin-bottom: 6px; }
+.ibm-hero-step-sub   { font-size: 12px; color: var(--gray-70); line-height: 1.55; }
 .ibm-hero-step-arrow {
   font-size: 22px; color: var(--gray-30);
-  padding: 0 12px; flex-shrink: 0; align-self: center;
+  padding: 0 10px; flex-shrink: 0; align-self: center;
 }
 
 /* ── Step indicator ─────────────────────────────────────────────────────── */
@@ -1783,7 +1784,7 @@ with main:
         ),
         "power": (
             "🖥️", "Power Server",
-            "IBM Power10 compute",
+            "IBM Power11 compute",
             "Coming soon",
         ),
     }
