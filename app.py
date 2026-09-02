@@ -1710,7 +1710,7 @@ st.markdown("""
     <div class="ibm-hero-step">
       <span class="ibm-hero-step-num">1</span>
       <div>
-        <div class="ibm-hero-step-title">Upload e-config CSV</div>
+        <div class="ibm-hero-step-title">Upload e-config CSV & StorM report</div>
         <div class="ibm-hero-step-sub">FlashSystem · SAN b-type · Storage Scale<br>+ StorM Capacity &amp; Performance Report</div>
       </div>
     </div>
@@ -1742,31 +1742,138 @@ with main:
     # PRODUCT LINE SELECTOR
     # =========================================================================
     _LINE_OPTIONS = {
-        "flashsystem": ("⚡", "FlashSystem + SAN", "All-NVMe block storage (FS5600 · FS7600 · FS9600 · …) + SAN b-type switches"),
-        "scale":       ("🗂️", "Storage Scale",     "Parallel file storage for AI & HPC (Scale 3500 · 6000)"),
-        "fusion":      ("☁️", "Storage Fusion",    "Coming soon — hybrid cloud storage orchestration"),
-        "power":       ("🖥️", "Power Server",      "Coming soon — IBM Power10 compute"),
+        "flashsystem": (
+            "⚡", "FlashSystem + SAN",
+            "All-NVMe block storage + SAN b-type switches",
+            "FS5000 · FS5600 · FS7600 · FS9600 · FSc200<br>SAN24B-7 · SAN64B-7 · SAN256B-7",
+        ),
+        "scale": (
+            "🗂️", "Storage Scale",
+            "Parallel file storage for AI &amp; HPC",
+            "ESS 3500 · ESS 6000",
+        ),
+        "fusion": (
+            "☁️", "Storage Fusion",
+            "Hybrid cloud storage orchestration",
+            "Coming soon",
+        ),
+        "power": (
+            "🖥️", "Power Server",
+            "IBM Power10 compute",
+            "Coming soon",
+        ),
     }
 
     st.markdown("""
 <style>
-.pl-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:16px; }
-.pl-card {
-    border:2px solid var(--gray-20); border-radius:6px; padding:14px 12px;
-    cursor:pointer; text-align:center; background:var(--white);
-    transition:border-color .15s, background .15s;
+/* ── Product line selector cards ──────────────────────────────────────────── */
+.pl-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-bottom: 12px;
 }
-.pl-card.active  { border-color:var(--blue-60); background:#f0f5ff; }
-.pl-card.soon    { opacity:.5; cursor:default; }
-.pl-card .pl-icon { font-size:22px; margin-bottom:4px; }
-.pl-card .pl-name { font-weight:600; font-size:13px; color:var(--gray-100); }
-.pl-card .pl-sub  { font-size:11px; color:var(--gray-70); margin-top:2px; }
+.pl-card {
+    border: 2px solid var(--gray-20);
+    border-top: 3px solid var(--gray-20);
+    border-radius: 4px;
+    padding: 18px 16px 16px;
+    cursor: pointer;
+    background: var(--white);
+    transition: border-color .15s, background .15s, box-shadow .15s;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 110px;
+}
+.pl-card:hover {
+    border-color: var(--blue-60);
+    box-shadow: 0 2px 8px rgba(15,98,254,.10);
+}
+.pl-card.active {
+    border-color: var(--blue-60);
+    border-top-color: var(--blue-60);
+    background: #f0f5ff;
+}
+.pl-card.soon {
+    opacity: .45;
+    cursor: default;
+    pointer-events: none;
+}
+.pl-card .pl-icon {
+    font-size: 24px;
+    line-height: 1;
+}
+.pl-card .pl-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--gray-100);
+    font-family: 'IBM Plex Sans', sans-serif;
+    line-height: 1.3;
+}
+.pl-card .pl-desc {
+    font-size: 12px;
+    color: var(--gray-70);
+    font-family: 'IBM Plex Sans', sans-serif;
+    line-height: 1.4;
+}
+.pl-card .pl-models {
+    font-size: 11px;
+    color: var(--gray-50);
+    font-family: 'IBM Plex Mono', monospace;
+    line-height: 1.5;
+    margin-top: auto;
+    padding-top: 6px;
+    border-top: 1px solid var(--gray-20);
+}
+.pl-card.active .pl-models { border-color: #c7d9ff; }
+.pl-card .pl-soon-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    background: var(--gray-20);
+    color: var(--gray-70);
+    padding: 2px 7px;
+    border-radius: 2px;
+    margin-top: auto;
+}
+/* hide the Streamlit trigger buttons — interaction via HTML card onclick */
+[data-testid="stHorizontalBlock"]:has([aria-label="pl_trigger_flashsystem"]) {
+    height: 0 !important; overflow: hidden !important;
+    margin: 0 !important; padding: 0 !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
+    # ── HTML card grid (display only) ────────────────────────────────────────
+    _pl_cur    = st.session_state["product_line"]
+    _cards_html = '<div class="pl-grid">'
+    for _pl_key, (_pl_icon, _pl_name, _pl_desc, _pl_models) in _LINE_OPTIONS.items():
+        _active = "active" if _pl_cur == _pl_key else ""
+        _coming = _pl_key in ("fusion", "power")
+        _soon   = "soon" if _coming else ""
+        _bottom = (
+            f'<div class="pl-soon-badge">Coming soon</div>'
+            if _coming else
+            f'<div class="pl-models">{_pl_models}</div>'
+        )
+        _cards_html += (
+            f'<div class="pl-card {_active} {_soon}">'
+            f'  <div class="pl-icon">{_pl_icon}</div>'
+            f'  <div class="pl-name">{_pl_name}</div>'
+            f'  <div class="pl-desc">{_pl_desc}</div>'
+            f'  {_bottom}'
+            f'</div>'
+        )
+    _cards_html += '</div>'
+    st.markdown(_cards_html, unsafe_allow_html=True)
+
+    # ── Actual Streamlit buttons (functional, visible) ───────────────────────
     _pl_cols = st.columns(4, gap="small")
-    for _pl_key, (_pl_icon, _pl_name, _pl_sub) in _LINE_OPTIONS.items():
-        _pl_is_active = (st.session_state["product_line"] == _pl_key)
+    for _pl_key, (_pl_icon, _pl_name, _pl_desc, _pl_models) in _LINE_OPTIONS.items():
+        _pl_is_active = (_pl_cur == _pl_key)
         _pl_coming    = _pl_key in ("fusion", "power")
         _pl_col_idx   = list(_LINE_OPTIONS.keys()).index(_pl_key)
         with _pl_cols[_pl_col_idx]:
@@ -1777,7 +1884,6 @@ with main:
                          type=_pl_btn_type,
                          disabled=_pl_coming):
                 if st.session_state["product_line"] != _pl_key:
-                    # reset parse state on line switch
                     st.session_state["product_line"]   = _pl_key
                     st.session_state["project_loaded"] = False
                     st.session_state["project_data"]   = {}
@@ -1786,13 +1892,7 @@ with main:
                     st.session_state["bid_bytes"]      = None
                     st.rerun()
 
-    _pl_cur = st.session_state["product_line"]
-    _pl_icon_cur, _pl_name_cur, _pl_desc_cur = _LINE_OPTIONS[_pl_cur]
-    st.markdown(
-        f'<div style="font-size:12px;color:var(--gray-70);margin-bottom:4px">'
-        f'Selected: <b>{_pl_name_cur}</b> — {_pl_desc_cur}</div>',
-        unsafe_allow_html=True,
-    )
+    _pl_icon_cur, _pl_name_cur, _pl_desc_cur, _ = _LINE_OPTIONS[_pl_cur]
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
     # =========================================================================
