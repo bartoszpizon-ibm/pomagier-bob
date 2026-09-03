@@ -2241,9 +2241,8 @@ a.pl-card:hover { color: inherit !important; }
                     unsafe_allow_html=True,
                 )
 
-    @st.fragment
     def _pricing_fragment():
-        """Isolated pricing column — reruns only this fragment on discount/MEP changes."""
+        """Pricing column — MEP / Discount / Systems / EU Margin inputs."""
         _proj_pd3  = st.session_state.get("project_data") or {}
         _loaded    = st.session_state.get("project_loaded", False)
         _lp_pd3    = (
