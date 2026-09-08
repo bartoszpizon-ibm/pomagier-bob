@@ -85,13 +85,14 @@ def generate_special_bid(
     ship     = project.get("shipping", 0.0)
     curr     = project.get("currency", "EUR")
     d        = discount_pct / 100
-    m        = 1 + eu_margin_pct / 100
+    # EU price  = list × (1 - discount%) + shipping   — what the end user pays
+    # BP price  = EU  × (1 - eu_margin%)              — what the Business Partner pays
     net_hw   = list_hw  * (1 - d) * n
     net_sw   = list_sw  * (1 - d) * n
     net_sup  = list_sup * (1 - d) * n
     net_ship = ship * n
-    net_tot  = net_hw + net_sw + net_sup + net_ship      # BP total
-    eu_tot   = (net_hw + net_sw + net_sup) * m + net_ship  # End User total (with margin)
+    eu_tot   = net_hw + net_sw + net_sup + net_ship          # End User Price
+    bp_tot   = eu_tot * (1 - eu_margin_pct / 100)            # BP Price
     list_tot = (list_hw + list_sw + list_sup + ship) * n
 
     # --- prepend quantity note to opportunity_context when n > 1 ---
@@ -110,7 +111,7 @@ def generate_special_bid(
         _sys_str = f" for {n} × {model_name}" if n > 1 else ""
         if _is_san_only_bid:
             business_justification = (
-                f"Requested BP price: {net_tot:,.0f} {curr}{_sys_str} "
+                f"Requested BP price: {bp_tot:,.0f} {curr}{_sys_str} "
                 f"(IBM list: {list_tot:,.0f} {curr}) — discount {discount_pct:.1f}%, {dev_str}.\n\n"
                 f"Justification: IBM list pricing is not competitive for this SAN infrastructure "
                 f"refresh without exception support. Competing SAN vendors (Cisco MDS, HPE SN) "
@@ -126,7 +127,7 @@ def generate_special_bid(
             )
         else:
             business_justification = (
-                f"Requested BP price: {net_tot:,.0f} {curr}{_sys_str} "
+                f"Requested BP price: {bp_tot:,.0f} {curr}{_sys_str} "
                 f"(IBM list: {list_tot:,.0f} {curr}) — discount {discount_pct:.1f}%, {dev_str}.\n\n"
                 f"Justification: IBM list pricing is not competitive for this opportunity without "
                 f"exception support. Competing vendors are expected to submit proposals priced "

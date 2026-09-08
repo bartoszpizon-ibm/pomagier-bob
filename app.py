@@ -2050,7 +2050,10 @@ a.pl-card:hover { color: inherit !important; }
             try:
                 _csv_buf  = io.BytesIO(csv_file.read())   # type: ignore[union-attr]
                 if st.session_state["product_line"] == "scale":
-                    _cap_buf  = io.BytesIO(capacity_file.read())  # type: ignore[union-attr]
+                    if capacity_file is None:
+                        st.error("StorM Capacity & Performance Report (XLSX) is required for Storage Scale.")
+                        st.stop()
+                    _cap_buf  = io.BytesIO(capacity_file.read())
                     _perf_buf = io.BytesIO(perf_file.read()) if perf_file else None
                     project = parse_scale_project(
                         _csv_buf, _cap_buf,
@@ -3372,8 +3375,13 @@ a.pl-card:hover { color: inherit !important; }
         ship2     = project.get("shipping", 0)
         d2        = discount_pct / 100
         curr2     = project.get("currency", "EUR")
-        net2      = list_hw2*(1-d2) + list_sw2*(1-d2) + list_sup2*(1-d2) + ship2
-        list_tot2 = list_hw2 + list_sw2 + list_sup2 + ship2
+        _n2       = int(st.session_state.get("num_systems", 1))
+        _m2       = float(st.session_state.get("eu_margin_pct", 15.0))
+        # EU (MEP) price = list × (1-d) × n + shipping × n
+        net2      = (list_hw2*(1-d2) + list_sw2*(1-d2) + list_sup2*(1-d2) + ship2) * _n2
+        # BP price = EU × (1 - margin%)
+        bp2       = net2 * (1 - _m2 / 100)
+        list_tot2 = (list_hw2 + list_sw2 + list_sup2 + ship2) * _n2
         dev_from_60 = discount_pct - 60.0
 
         # ── Build auto-suggested texts (computed once, user can override) ─
@@ -3534,7 +3542,7 @@ a.pl-card:hover { color: inherit !important; }
 
         if _is_scale_bid:
             _hint_business_just = (
-                f"Requested BP price: {net2:,.0f} {curr2} (IBM list: {list_tot2:,.0f} {curr2}) — "
+                f"Requested BP price: {bp2:,.0f} {curr2} (IBM list: {list_tot2:,.0f} {curr2}) — "
                 f"discount {discount_pct:.1f}%, {_dev_str}.\n\n"
                 + (f"Client's approximate budget: {_bj_budget} {curr2}.\n" if _bj_budget else "")
                 + (f"Incumbent: {_bj_incumbent}" + (f" ({_bj_inc_model})" if _bj_inc_model else "") + ".\n" if _bj_incumbent else "")
@@ -3566,7 +3574,7 @@ a.pl-card:hover { color: inherit !important; }
                 for sw in _san_switches_bid
             ) if _san_switches_bid else "IBM b-type SAN switches"
             _hint_business_just = (
-                f"Requested BP price: {net2:,.0f} {curr2} (IBM list: {list_tot2:,.0f} {curr2}) — "
+                f"Requested BP price: {bp2:,.0f} {curr2} (IBM list: {list_tot2:,.0f} {curr2}) — "
                 f"discount {discount_pct:.1f}%, {_dev_str}.\n\n"
                 + (f"Client's approximate budget: {_bj_budget} {curr2}.\n" if _bj_budget else "")
                 + (f"Incumbent: {_bj_incumbent}" + (f" ({_bj_inc_model})" if _bj_inc_model else "") + ".\n" if _bj_incumbent else "")
@@ -3588,7 +3596,7 @@ a.pl-card:hover { color: inherit !important; }
             )
         else:
             _hint_business_just = (
-                f"Requested BP price: {net2:,.0f} {curr2} (IBM list: {list_tot2:,.0f} {curr2}) — "
+                f"Requested BP price: {bp2:,.0f} {curr2} (IBM list: {list_tot2:,.0f} {curr2}) — "
                 f"discount {discount_pct:.1f}%, {_dev_str}.\n\n"
                 + (f"Client's approximate budget: {_bj_budget} {curr2}.\n" if _bj_budget else "")
                 + (f"Incumbent: {_bj_incumbent}" + (f" ({_bj_inc_model})" if _bj_inc_model else "") + ".\n" if _bj_incumbent else "")
@@ -3664,15 +3672,16 @@ a.pl-card:hover { color: inherit !important; }
 
             # ── Pricing summary ───────────────────────────────────────────
             section("Pricing Summary (auto)")
+            _n2_sys_label = f"{_n2} × " if _n2 > 1 else ""
             st.dataframe({
                 "Category": ["Hardware (List)", "Support (List)", "Software (List)", "Shipping", "NET Total"],
-                f"List ({curr2})": [
-                    f"{list_hw2:,.2f}", f"{list_sup2:,.2f}", f"{list_sw2:,.2f}",
-                    f"{ship2:,.2f}", f"{list_tot2:,.2f}",
+                f"List {_n2_sys_label}({curr2})": [
+                    f"{list_hw2*_n2:,.2f}", f"{list_sup2*_n2:,.2f}", f"{list_sw2*_n2:,.2f}",
+                    f"{ship2*_n2:,.2f}", f"{list_tot2:,.2f}",
                 ],
-                f"Net @ {discount_pct:.0f}%": [
-                    f"{list_hw2*(1-d2):,.2f}", f"{list_sup2*(1-d2):,.2f}",
-                    f"{list_sw2*(1-d2):,.2f}", f"{ship2:,.2f}", f"{net2:,.2f}",
+                f"EU @ {discount_pct:.0f}% {_n2_sys_label}({curr2})": [
+                    f"{list_hw2*(1-d2)*_n2:,.2f}", f"{list_sup2*(1-d2)*_n2:,.2f}",
+                    f"{list_sw2*(1-d2)*_n2:,.2f}", f"{ship2*_n2:,.2f}", f"{net2:,.2f}",
                 ],
             }, hide_index=True, use_container_width=True)
 
@@ -3811,7 +3820,7 @@ a.pl-card:hover { color: inherit !important; }
                         + (f"Incumbent vendor: {_incumbent}" + (f" ({_inc_model})" if _inc_model else "") + ". " if _incumbent else "")
                         + f"Key competitors: {_comp_str}. "
                         f"Competing SAN proposals are expected to be priced below IBM list, "
-                        f"targeting the {net2:,.0f} {curr2} range. "
+                        f"targeting the {bp2:,.0f} {curr2} range. "
                         f"IBM b-type SAN switches differentiate through native IBM stack integration, "
                         f"64 Gbps FC and NVMe-oF readiness, and IBM Storage Expert Care support. "
                         f"Source: [client feedback / partner insight / RFP documentation]."
@@ -3822,7 +3831,7 @@ a.pl-card:hover { color: inherit !important; }
                         + (f"Incumbent vendor: {_incumbent}" + (f" ({_inc_model})" if _inc_model else "") + ". " if _incumbent else "")
                         + f"Key competitors: {_comp_str}. "
                         f"Competing solutions are expected to be priced lower than IBM list price, "
-                        f"targeting the {net2:,.0f} {curr2} range. "
+                        f"targeting the {bp2:,.0f} {curr2} range. "
                         f"IBM {_mname} differentiates through: AI-powered ransomware detection "
                         f"(FlashCore Module 5), Distributed RAID 6 with >2 TB/h rebuild, "
                         f"and IBM Storage Insights for proactive management. "
@@ -3969,7 +3978,7 @@ a.pl-card:hover { color: inherit !important; }
                             deal_history=(
                                 (f"Reference SBO: {st.session_state['bid_ref_sbo_c']}\n" if st.session_state.get("bid_ref_sbo_c") else "")
                                 + (st.session_state["bid_deal_history"] or "")
-                            ).strip() or None,
+                            ).strip() or "",
                             business_justification=st.session_state["bid_business_just"],
                             extended_validity_days=_days_fwd if _days_fwd > 30 else 0,
                             extended_validity_reason=_vr_label,
