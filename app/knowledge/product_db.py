@@ -120,6 +120,52 @@ SUPPORT_CODES: dict[str, dict] = {
         "fix_time_hours": "Next Business Day",
         "description": "24×7 around-the-clock support with hardware fix-time SLA.",
     },
+    # ── IBM Power Expert Care ──────────────────────────────────────────────
+    "EXF5": {
+        "name": "Expert Care Advanced 5Y 24h Committed Fix",
+        "level": "Advanced",
+        "years": 5,
+        "coverage": "24×7",
+        "fix_time": True,
+        "fix_time_hours": "24h on-site committed fix",
+        "description": "24×7 support with 24-hour on-site committed hardware fix-time SLA.",
+    },
+    "EXPE": {
+        "name": "Expert Care Premium 5Y 24h Committed Fix",
+        "level": "Premium",
+        "years": 5,
+        "coverage": "24×7",
+        "fix_time": True,
+        "fix_time_hours": "24h on-site committed fix",
+        "description": "24×7 premium support with 24-hour on-site committed hardware fix-time SLA.",
+    },
+    "9821-AF5": {
+        "name": "Expert Care Advanced 5Y (Power L1124)",
+        "level": "Advanced",
+        "years": 5,
+        "coverage": "24×7",
+        "fix_time": True,
+        "fix_time_hours": "24h on-site committed fix",
+        "description": "Expert Care Advanced 5-year 24h Committed Fix for Power L1124.",
+    },
+    "9369-PF5": {
+        "name": "Expert Care Premium 5Y (Power E1150)",
+        "level": "Premium",
+        "years": 5,
+        "coverage": "24×7",
+        "fix_time": True,
+        "fix_time_hours": "24h on-site committed fix",
+        "description": "Expert Care Premium 5-year 24h Committed Fix for Power E1150.",
+    },
+    "9367-PF5": {
+        "name": "Expert Care Premium 5Y (Power E1180)",
+        "level": "Premium",
+        "years": 5,
+        "coverage": "24×7",
+        "fix_time": True,
+        "fix_time_hours": "24h on-site committed fix",
+        "description": "Expert Care Premium 5-year 24h Committed Fix for Power E1180.",
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -290,6 +336,19 @@ _DOCS: dict[str, dict[str, str]] = {
     "S1022": {
         "docs_url":         "https://www.ibm.com/docs/en/power10/9043-MRX",
         "sales_manual_url": "https://www.ibm.com/docs/en/announcements/family-512701-servers-power-s1022",
+    },
+    # ── IBM Power11 ───────────────────────────────────────────────────────────
+    "L1124": {
+        "docs_url":         "https://www.ibm.com/docs/en/power11/9856-42H",
+        "sales_manual_url": "https://www.ibm.com/docs/en/announcements/family-power11-l1124",
+    },
+    "E1150": {
+        "docs_url":         "https://www.ibm.com/docs/en/power11/9043-MRU",
+        "sales_manual_url": "https://www.ibm.com/docs/en/announcements/family-power11-e1150",
+    },
+    "E1180": {
+        "docs_url":         "https://www.ibm.com/docs/en/power11/9080-HEU",
+        "sales_manual_url": "https://www.ibm.com/docs/en/announcements/family-power11-e1180",
     },
 }
 
@@ -977,6 +1036,93 @@ MODEL_DB: dict[str, dict] = {
             "PCIe 5.0 and OpenCAPI 5.0 I/O",
             "Integrated MMA for on-chip AI acceleration",
             "PowerVM hypervisor for LPAR virtualisation",
+        ],
+    },
+    # ── IBM Power11 — L1124 ────────────────────────────────────────────────
+    "9856-42H": {
+        "name": "IBM Power L1124",
+        "short": "L1124",
+        "family": "Power",
+        "form_factor": "4U",
+        "image": "IBM-Power1124.png",
+        "description": (
+            "IBM Power L1124 (9856-42H) is a mid-range Power11 server designed for "
+            "SAP HANA, mixed Linux and AIX workloads, delivering 32 activated cores "
+            "and 4 TB DDR5 memory in a compact 4U enclosure."
+        ),
+        "highlights": [
+            "32-core Power11 processor",
+            "4 TB DDR5 memory (SAP HANA validated)",
+            "8× 32 Gb Fibre Channel ports",
+            "RoCE 25 GbE connectivity (4× dual-port)",
+            "5-year Expert Care Advanced 24h committed fix",
+            "AIX 7.3 + Linux + SAP HANA support",
+        ],
+        "highlights_pl": [
+            "32-rdzeniowy procesor Power11",
+            "4 TB pamięci DDR5 (certyfikacja SAP HANA)",
+            "8× porty Fibre Channel 32 Gb",
+            "Łączność RoCE 25 GbE (4× dual-port)",
+            "5-letni Expert Care Advanced z 24h committed fix",
+            "Wsparcie AIX 7.3 + Linux + SAP HANA",
+        ],
+    },
+    # ── IBM Power11 — E1150 ────────────────────────────────────────────────
+    "9043-MRU": {
+        "name": "IBM Power E1150",
+        "short": "E1150",
+        "family": "Power",
+        "form_factor": "4U",
+        "image": "IBM-Power1150.png",
+        "description": (
+            "IBM Power E1150 (9043-MRU) is a scalable enterprise Power11 server "
+            "with 64 activated cores, 16 TB DDR5 memory with Active Memory Mirroring, "
+            "and full enterprise software stack including PowerHA, PowerSC, and PowerVC."
+        ),
+        "highlights": [
+            "64-core Power11 scalable enterprise server",
+            "16 TB DDR5 memory with Active Memory Mirroring",
+            "Expert Care Premium 5Y, 24h committed fix",
+            "AIX 7.3 Enterprise + SUSE SLES for SAP",
+            "PowerHA HA + PowerSC security + PowerVC cloud",
+            "IBM Expert Labs onsite deployment included",
+        ],
+        "highlights_pl": [
+            "64-rdzeniowy skalowalny serwer korporacyjny Power11",
+            "16 TB pamięci DDR5 z Active Memory Mirroring",
+            "Expert Care Premium 5 lat, 24h committed fix",
+            "AIX 7.3 Enterprise + SUSE SLES for SAP",
+            "PowerHA HA + PowerSC security + PowerVC cloud",
+            "Wdrożenie on-site z IBM Expert Labs w zestawie",
+        ],
+    },
+    # ── IBM Power11 — E1180 ────────────────────────────────────────────────
+    "9080-HEU": {
+        "name": "IBM Power E1180",
+        "short": "E1180",
+        "family": "Power",
+        "form_factor": "4U",
+        "image": "IBM-Power1180.png",
+        "description": (
+            "IBM Power E1180 (9080-HEU) is a high-density Power11 server with a single "
+            "48-core processor chip, 16 TB DDR5 memory, and scale-out capability up to "
+            "4 nodes — optimised for Linux-only SAP HANA scale-out deployments."
+        ),
+        "highlights": [
+            "48-core high-density Power11 processor",
+            "16 TB DDR5 memory (32Gbit DDR5)",
+            "Scale-out architecture up to 4 nodes",
+            "Expert Care Premium 5Y, 24h committed fix",
+            "SUSE SLES for SAP — Linux-only configuration",
+            "IBM Expert Labs onsite deployment included",
+        ],
+        "highlights_pl": [
+            "48-rdzeniowy wysokogęstościowy procesor Power11",
+            "16 TB pamięci DDR5 (32Gbit DDR5)",
+            "Architektura scale-out do 4 węzłów",
+            "Expert Care Premium 5 lat, 24h committed fix",
+            "SUSE SLES for SAP — konfiguracja wyłącznie Linux",
+            "Wdrożenie on-site z IBM Expert Labs w zestawie",
         ],
     },
 }

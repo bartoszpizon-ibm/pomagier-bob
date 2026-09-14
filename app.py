@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from app.parsers.econfig_parser import parse_project, parse_project_csv_only
 from app.parsers.scale_parser import parse_scale_project
+from app.parsers.power_parser import parse_power_project
 from app.parsers.bid_parser import parse_bid_docx
 from app.generators.exec_summary import generate_exec_summary
 from app.generators.rfp_generator import generate_rfp
@@ -27,6 +28,9 @@ from app.generators.special_bid_generator import generate_special_bid
 from app.generators.scale_exec_summary import generate_scale_exec_summary
 from app.generators.scale_rfp_generator import generate_scale_rfp
 from app.generators.scale_special_bid_generator import generate_scale_special_bid
+from app.generators.power_exec_summary import generate_power_exec_summary
+from app.generators.power_rfp_generator import generate_power_rfp
+from app.generators.power_special_bid_generator import generate_power_special_bid
 from app.generators.bid_justification import generate_bj, ollama_status
 from app.parsers.san_parser import parse_san_csv, has_san_switches
 from app.knowledge.product_db import get_model_info, get_docs, get_san_switch_info
@@ -920,6 +924,14 @@ COMPETITORS_STORAGE = [
     "Other (describe below)",
 ]
 
+COMPETITORS_POWER = [
+    "HPE Superdome Flex",
+    "Dell PowerEdge (x86 alternative)",
+    "Oracle SPARC / x86",
+    "Fujitsu PRIMEFLEX",
+    "Other (describe below)",
+]
+
 COMPETITORS_SAN = [
     "Cisco MDS (Nexus)",
     "HPE SN Switch (OEM Brocade)",
@@ -974,6 +986,22 @@ DEAL_TYPES: list[tuple[str,str,str]] = [
      "Unified block + file / NAS workloads",
      "unified all-flash storage for mixed block and file (NFS/SMB) workloads, "
      "requiring IBM Spectrum Scale or native file services integration"),
+    # ── IBM Power deal types ───────────────────────────────────────────────
+    ("power_sap_hana",
+     "SAP HANA deployment on IBM Power",
+     "enterprise IBM Power11 server for SAP HANA TDI-certified deployment, "
+     "requiring activated Power11 cores, certified DDR5 memory capacity, "
+     "PowerVM virtualisation, HA clustering, and IBM Expert Care 24h committed fix"),
+    ("power_ai_inference",
+     "AI inference & analytics on IBM Power",
+     "IBM Power11 server for AI inferencing and in-memory analytics, "
+     "leveraging on-chip Matrix Math Accelerator (MMA), high-bandwidth DDR5 memory, "
+     "and RoCE 25 GbE fabric connectivity for GPU-less AI workloads"),
+    ("power_cloud_native",
+     "Cloud-native workloads on IBM Power",
+     "IBM Power11 server for cloud-native and containerised workloads on Red Hat OpenShift, "
+     "requiring PowerVM LPAR virtualisation, PowerVC cloud management, "
+     "and high-availability PowerHA clustering"),
 ]
 
 # Warianty tekstów dla Sekcja A — Deal Background / Scenario
@@ -1324,7 +1352,7 @@ if st.query_params.get("reset") == "1":
 
 # Handle ?pl= query param — product line switch (triggered by HTML card links)
 _qp_pl = st.query_params.get("pl", "")
-if _qp_pl in ("flashsystem", "scale"):
+if _qp_pl in ("flashsystem", "scale", "power"):
     if st.session_state.get("product_line") != _qp_pl:
         st.session_state["product_line"]   = _qp_pl
         st.session_state["project_loaded"] = False
@@ -1797,8 +1825,8 @@ with main:
         ),
         "power": (
             "🖥️", "Power Server",
-            "IBM Power11 compute",
-            "Coming soon",
+            "IBM Power11 enterprise compute",
+            "L1124 · E1150 · E1180",
         ),
     }
 
@@ -1892,7 +1920,7 @@ a.pl-card:hover { color: inherit !important; }
     _cards_html = '<div class="pl-grid">'
     for _pl_key, (_pl_icon, _pl_name, _pl_desc, _pl_models) in _LINE_OPTIONS.items():
         _active = "active" if _pl_cur == _pl_key else ""
-        _coming = _pl_key in ("fusion", "power")
+        _coming = _pl_key in ("fusion",)
         _soon   = "soon" if _coming else ""
         _bottom = (
             f'<div class="pl-soon-badge">Coming soon</div>'
@@ -1924,6 +1952,7 @@ a.pl-card:hover { color: inherit !important; }
     section("Step 1 — Upload Configuration Files")
 
     _is_scale = (st.session_state["product_line"] == "scale")
+    _is_power = (st.session_state["product_line"] == "power")
     _badge_wrap = (
         "margin-bottom:-8px !important;"
         "padding-bottom:0 !important;"
@@ -1950,7 +1979,25 @@ a.pl-card:hover { color: inherit !important; }
             f'</div>'
         )
 
-    if _is_scale:
+    if _is_power:
+        # Power: 1 file only — CSV required, no XLSX needed
+        u1, = st.columns([1])
+        with u1:
+            csv_file = st.file_uploader(
+                "Upload Power e-config CSV",
+                type=["csv"], key="power_csv_upload",
+                help="IBM e-config Cloud (ECMPWR) → Export CSV for Power L1124/E1150/E1180",
+                label_visibility="collapsed",
+            )
+            st.markdown(
+                _upload_badge("Required", "Power e-config CSV",
+                              "required", csv_file,
+                              sub="IBM e-config Cloud (ECMPWR) → Export CSV"),
+                unsafe_allow_html=True,
+            )
+        capacity_file = None
+        perf_file     = None
+    elif _is_scale:
         # Scale: 2 files — CSV + combined Capacity & Performance XLSX
         u1, u2 = st.columns([1, 1], gap="large")
         with u1:
@@ -2026,7 +2073,7 @@ a.pl-card:hover { color: inherit !important; }
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
     # CSV-only mode notice
-    _csv_only_mode = (csv_file is not None and capacity_file is None and not _is_scale)
+    _csv_only_mode = (csv_file is not None and capacity_file is None and not _is_scale and not _is_power)
     if _csv_only_mode:
         st.markdown(
             notif("info",
@@ -2049,7 +2096,16 @@ a.pl-card:hover { color: inherit !important; }
         with st.spinner("Parsing configuration files…"):
             try:
                 _csv_buf  = io.BytesIO(csv_file.read())   # type: ignore[union-attr]
-                if st.session_state["product_line"] == "scale":
+                if st.session_state["product_line"] == "power":
+                    # Power path — CSV only, no XLSX needed
+                    project = parse_power_project(_csv_buf)
+                    # Auto deal type for Power
+                    def _set_deal_type(key: str) -> None:
+                        label = next((d[1] for d in DEAL_TYPES if d[0] == key), key)
+                        st.session_state["deal_type"]     = key
+                        st.session_state["sel_deal_type"] = label
+                    _set_deal_type("power_sap_hana")
+                elif st.session_state["product_line"] == "scale":
                     if capacity_file is None:
                         st.error("StorM Capacity & Performance Report (XLSX) is required for Storage Scale.")
                         st.stop()
@@ -2115,13 +2171,15 @@ a.pl-card:hover { color: inherit !important; }
     # show file-status hints
     if not csv_file:
         st.markdown(notif("info", "Upload your <b>e-config CSV</b> to begin."), unsafe_allow_html=True)
-    elif not capacity_file and not _is_scale and not loaded:
+    elif not capacity_file and not _is_scale and not _is_power and not loaded:
         st.markdown(
             notif("info",
                   "CSV uploaded. Click <b>Parse Files</b> to continue with CSV-only mode "
                   "(Special Bid), or also upload Storage Modeller XLSX for full mode."),
             unsafe_allow_html=True,
         )
+    elif _is_power and csv_file and not loaded:
+        st.markdown(notif("info", "Power e-config CSV uploaded — click <b>Parse Files</b>."), unsafe_allow_html=True)
     elif not loaded:
         st.markdown(notif("info", "Files ready — click <b>Parse Files</b>."), unsafe_allow_html=True)
     else:
@@ -2481,7 +2539,10 @@ a.pl-card:hover { color: inherit !important; }
 
     # ── Metrics strip — pure HTML grid, equal height guaranteed ──────────
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-    if _has_fs and _has_san:
+    _is_power_section = (st.session_state.get("product_line") == "power")
+    if _is_power_section:
+        section("Configuration at a Glance — IBM Power")
+    elif _has_fs and _has_san:
         section("Configuration at a Glance — FlashSystem")
     elif _has_san and not _has_fs:
         section("Configuration at a Glance — SAN")
@@ -2520,8 +2581,86 @@ a.pl-card:hover { color: inherit !important; }
                 f'{d}</div>')
 
     _is_scale_view = (st.session_state.get("product_line") == "scale")
+    _is_power_view = (st.session_state.get("product_line") == "power")
 
-    if _is_scale_view:
+    if _is_power_view:
+        # ── IBM Power kafelki ─────────────────────────────────────────────
+        _pw_cores     = project.get("total_cores_activated", project.get("physical_cores", 0))
+        _pw_phys      = project.get("physical_cores", _pw_cores)
+        _pw_proc      = project.get("processor_desc", "Power11")
+        _pw_ghz_min   = project.get("processor_ghz_min", 0.0)
+        _pw_ghz_max   = project.get("processor_ghz_max", 0.0)
+        _pw_ghz_str   = (f"{_pw_ghz_min:.1f}–{_pw_ghz_max:.1f} GHz"
+                         if _pw_ghz_min else "Power11")
+        _pw_mem_tb    = project.get("memory_tb", 0.0)
+        _pw_mem_gb    = project.get("memory_gb", 0)
+        _pw_mem_type  = project.get("memory_type", "DDR5")
+        _pw_mem_freq  = project.get("memory_freq_mhz", 4000)
+        _pw_mem_mirr  = project.get("memory_mirroring", False)
+        _pw_nvme      = project.get("nvme_count", 0)
+        _pw_nvme_d    = project.get("nvme_desc", "NVMe U.2")
+        _pw_fc        = project.get("fc_ports", 0)
+        _pw_roce      = project.get("roce_adapters", 0)
+        _pw_roce_spd  = project.get("roce_speed_gbps", 25)
+        _pw_os_p      = project.get("os_primary", "Linux")
+        _pw_os_s      = project.get("os_secondary", "")
+        _pw_sap       = project.get("sap_hana", False)
+        _pw_labs      = project.get("expert_labs", False)
+        _pw_labs_p    = project.get("expert_labs_price", 0.0)
+        _pw_model_sh  = model_info.get("short", project.get("model_name", model_code))
+        _pw_model_nm  = model_info.get("name", project.get("model_name", model_code))
+        _pw_os_str    = _pw_os_p + (f" + {_pw_os_s}" if _pw_os_s else "")
+
+        # EU/BP for Power — include services in list price
+        _pw_list_svc  = project.get("list_price_services", 0.0)
+        _pw_lp_total  = (project.get("list_price_hw", 0)
+                       + project.get("list_price_sw", 0)
+                       + project.get("list_price_support", 0)
+                       + _pw_list_svc)
+        _pw_eu        = (_pw_lp_total * (1 - discount_pct / 100) + _shipping) * _num_sys
+        _pw_bp        = _pw_eu * (1 - _eu_margin / 100)
+
+        _pw_labs_tile = ""
+        if _pw_labs and _pw_labs_p:
+            _pw_labs_tile = _tile("Expert Labs",
+                                  f"{project.get('expert_labs_qty',1)} × Project Unit",
+                                  f"{_pw_labs_p:,.0f} {_curr} · Onsite")
+
+        st.markdown(
+            '<div class="ibm-metric-row">'
+            + _tile("Model", _pw_model_sh, f"{_pw_model_nm} · {model_code}")
+            + _tile("Processor", _pw_ghz_str, _pw_proc)
+            + _tile("Activated Cores", str(_pw_cores),
+                    f"{_pw_phys} total physical" if _pw_phys != _pw_cores else "all physical cores")
+            + _tile("Memory",
+                    f"{_pw_mem_tb:.1f} TB" if _pw_mem_tb else f"{_pw_mem_gb:,} GB",
+                    f"{_pw_mem_type} {_pw_mem_freq} MHz"
+                    + (" · AMM" if _pw_mem_mirr else ""))
+            + _tile("NVMe Storage",
+                    f"{_pw_nvme} × drives" if _pw_nvme else "—",
+                    _pw_nvme_d[:40] if _pw_nvme_d else "")
+            + _tile("FC Ports",
+                    f"{_pw_fc} × 32 Gb FC" if _pw_fc else "—",
+                    "Fibre Channel")
+            + _tile("RoCE Adapters",
+                    f"{_pw_roce} × {_pw_roce_spd} GbE" if _pw_roce else "—",
+                    "dual-port RoCE")
+            + _tile("OS Support", _pw_os_str, "")
+            + _tile("SAP HANA",
+                    "✓ TDI Certified" if _pw_sap else "Not configured",
+                    "SAP HANA TDI" if _pw_sap else "")
+            + _tile("Support", _sup_name,
+                    f"{_sup_years} yr{' ' + _sup_fix_str if _sup_fix_str else ''}"
+                    if _sup_years != "—" else "—")
+            + _pw_labs_tile
+            + _tile("EU Price", f"{_pw_eu:,.0f} {_curr}",
+                    f"{_num_sys} × system" if _num_sys > 1 else "= Requested MEP")
+            + _tile("BP Price", f"{_pw_bp:,.0f} {_curr}",
+                    f"margin {_eu_margin:.0f}%")
+            + '</div>',
+            unsafe_allow_html=True,
+        )
+    elif _is_scale_view:
         # ── Storage Scale kafelki ─────────────────────────────────────────
         _sc_data_nodes  = project.get("num_data_nodes", 1) or 1
         _sc_proto_nodes = project.get("num_protocol_nodes", 0)
@@ -3136,9 +3275,13 @@ a.pl-card:hover { color: inherit !important; }
             if st.button("Generate Executive Summary DOCX →", type="primary", use_container_width=True):
                 with st.spinner("Generating…"):
                     try:
-                        _gen_fn = (generate_scale_exec_summary
-                                   if st.session_state["product_line"] == "scale"
-                                   else generate_exec_summary)
+                        _pl_now = st.session_state["product_line"]
+                        if _pl_now == "power":
+                            _gen_fn = generate_power_exec_summary
+                        elif _pl_now == "scale":
+                            _gen_fn = generate_scale_exec_summary
+                        else:
+                            _gen_fn = generate_exec_summary
                         _gen_kwargs = dict(
                             project=project,
                             client_name=client_name,
@@ -3148,7 +3291,7 @@ a.pl-card:hover { color: inherit !important; }
                             num_systems=int(st.session_state.get("num_systems", 1)),
                             eu_margin_pct=float(st.session_state.get("eu_margin_pct", 15.0)),
                         )
-                        if st.session_state["product_line"] != "scale":
+                        if _pl_now not in ("scale", "power"):
                             _gen_kwargs["iops_override"] = iops_manual if iops_manual > 0 else None
                         docx_bytes = _gen_fn(**_gen_kwargs)
                         slug = re.sub(r"[^\w]", "_", client_name) if client_name else "Client"
@@ -3181,10 +3324,11 @@ a.pl-card:hover { color: inherit !important; }
 
         with r1_left:
             section("RFP Information")
-            _rfp_san_only = bool(project.get("san_switches")) and not bool(project.get("model_code", ""))
+            _rfp_san_only  = bool(project.get("san_switches")) and not bool(project.get("model_code", ""))
+            _rfp_is_power  = (st.session_state.get("product_line") == "power")
             rfp_iops_manual    = 0
-            rfp_iops_from_file = 0   # initialise; set below for non-SAN configs
-            if not _rfp_san_only:
+            rfp_iops_from_file = 0   # initialise; set below for non-SAN / non-Power configs
+            if not _rfp_san_only and not _rfp_is_power:
                 rfp_iops_from_file = project.get("perf_iops_total", 0)
                 rfp_iops_sub1      = project.get("perf_iops_max_sub1ms", 0)
                 rfp_lat_sub1       = project.get("perf_latency_at_max_sub1ms", 0.0)
@@ -3238,8 +3382,11 @@ a.pl-card:hover { color: inherit !important; }
 
             _rfp_label = (
                 "Generate SAN RFP / Specification (.docx) →"
-                if _rfp_san_only else
+                if _rfp_san_only else (
+                "Generate Power11 RFP / Technical Spec (.docx) →"
+                if _rfp_is_power else
                 "Generate RFP / RFI (.docx) →"
+                )
             )
             if st.button(_rfp_label, type="primary", use_container_width=True, key="btn_rfp"):
                 with st.spinner("Generating RFP…"):
@@ -3256,6 +3403,16 @@ a.pl-card:hover { color: inherit !important; }
                             )
                             _san_short = (project.get("san_switches") or [{}])[0].get("switch_short", "SAN")
                             rfp_fname = f"RFP_SAN_{_san_short}_{slug}_{date.today():%Y%m%d}{_rfp_sfx}.docx"
+                        elif st.session_state["product_line"] == "power":
+                            # Power RFP
+                            rfp_bytes = generate_power_rfp(
+                                project=project,
+                                client_name=client_name,
+                                seller_name=seller_name,
+                                lang=st.session_state["rfp_lang"],
+                                num_systems=int(st.session_state.get("num_systems", 1)),
+                            )
+                            rfp_fname = f"RFP_{model_info.get('short', model_code)}_{slug}_{date.today():%Y%m%d}{_rfp_sfx}.docx"
                         else:
                             # FlashSystem / Scale RFP
                             rfp_iops_used = rfp_iops_manual if not rfp_iops_from_file else 0
@@ -3340,6 +3497,28 @@ a.pl-card:hover { color: inherit !important; }
                 {"Parameter": [r[0] for r in _san_preview], "Value": [r[1] for r in _san_preview]},
                 hide_index=True, use_container_width=True,
             )
+        elif _rfp_is_power:
+            # Power RFP preview
+            _pw_cores_rfp = project.get("total_cores_activated", project.get("physical_cores", 0))
+            _pw_mem_tb_rfp = project.get("memory_tb", 0.0)
+            rfp_rows = [
+                ("Model",              f"{model_info.get('name', project.get('model_name', '—'))} ({project.get('model_code','—')})"),
+                ("Processor",          project.get("processor_desc", "Power11")),
+                ("Activated cores",    f"{_pw_cores_rfp}"),
+                ("Memory",             f"{_pw_mem_tb_rfp:.1f} TB DDR5 {project.get('memory_freq_mhz',4000)} MHz"),
+                ("NVMe storage",       f"{project.get('nvme_count',0)} × {project.get('nvme_desc','NVMe U.2')}"),
+                ("FC connectivity",    f"{project.get('fc_ports',0)} × 32 Gb FC"),
+                ("RoCE connectivity",  f"{project.get('roce_adapters',0)} × {project.get('roce_speed_gbps',25)} GbE RoCE"),
+                ("OS support",         project.get("os_primary","Linux") + (" + " + project.get("os_secondary","") if project.get("os_secondary") else "")),
+                ("SAP HANA",           "TDI Certified" if project.get("sap_hana") else "Not configured"),
+                ("PowerVM",            "Included" if project.get("powervm") else "Not configured"),
+                ("Expert Labs",        "Included" if project.get("expert_labs") else "Not included"),
+                ("Support",            f"{sup.get('name','—')} · {sup.get('coverage','—')} · {sup.get('years','—')} years"),
+            ]
+            st.dataframe(
+                {"Parameter": [r[0] for r in rfp_rows], "Value": [r[1] for r in rfp_rows]},
+                hide_index=True, use_container_width=True,
+            )
         else:
             rfp_rows = [
                 ("Enclosure",      f"{model_info.get('form_factor','1U')} · {project.get('io_groups','2')} I/O Groups · {project.get('enclosures','1')} enclosure(s)"),
@@ -3400,10 +3579,29 @@ a.pl-card:hover { color: inherit !important; }
         _deal_str = f" Workload scenario: {_deal_label}." if _deal_label and _deal_label != "— wybierz —" else ""
 
         _is_scale_bid = (st.session_state.get("product_line") == "scale")
+        _is_power_bid = (st.session_state.get("product_line") == "power")
         _is_san_only  = bool(project.get("san_switches")) and not bool(project.get("model_code", ""))
         _san_switches_bid = project.get("san_switches", [])
 
-        if _is_scale_bid:
+        if _is_power_bid:
+            # ── Power-specific opportunity context ───────────────────────
+            _pw_cores_bid = project.get("total_cores_activated", project.get("physical_cores", 0))
+            _pw_mem_tb_bid = project.get("memory_tb", 0.0)
+            _pw_fc_bid     = project.get("fc_ports", 0)
+            _pw_sap_bid    = project.get("sap_hana", False)
+            _pw_labs_bid   = project.get("expert_labs", False)
+            _sap_str_bid   = ", SAP HANA TDI certified" if _pw_sap_bid else ""
+            _labs_str_bid  = ", IBM Expert Labs onsite deployment included" if _pw_labs_bid else ""
+            _hint_opportunity = (
+                f"Net-new IBM Power11 server deployment opportunity for "
+                f"{client_name or '[Client]'} — delivery of {_mname} with "
+                f"{_pw_cores_bid} activated processor cores, "
+                f"{_pw_mem_tb_bid:.1f} TB DDR5 memory{_sap_str_bid}, "
+                f"{_pw_fc_bid} × 32 Gb FC ports{_labs_str_bid}. "
+                f"Support: {_sup_name}.{_deal_str} "
+                f"Currently in the RFP response stage. {_due_str}"
+            )
+        elif _is_scale_bid:
             # ── Scale-specific opportunity context ───────────────────────
             _sc_bw_r   = project.get("throughput_read_gbs", 0.0)
             _sc_bw_w   = project.get("throughput_write_gbs", 0.0)
@@ -3474,12 +3672,28 @@ a.pl-card:hover { color: inherit !important; }
         _bj_budget     = st.session_state.get("bid_client_budget", "")
         _bj_comp_str   = ", ".join(_bj_comp_list) if _bj_comp_list else (
             "leading parallel file storage vendors" if _is_scale_bid
-            else ("Cisco MDS, HPE SN switches" if _is_san_only else "leading all-flash vendors")
+            else ("HPE Superdome Flex, Dell PowerEdge" if _is_power_bid
+            else ("Cisco MDS, HPE SN switches" if _is_san_only else "leading all-flash vendors"))
         )
 
         # Select background text variant based on deal_type
         _bg_variants = _BACKGROUND_VARIANTS.get(deal_type, [])
-        if _bg_variants and not _is_scale_bid:
+        if _is_power_bid:
+            # ── Power-specific deal background ───────────────────────────
+            _pw_mem_tb_bg = project.get("memory_tb", 0.0)
+            _hint_background = (
+                f"This is a competitive IBM Power11 server RFP for {client_name or '[Client]'}, "
+                f"requiring exception pricing to remain competitive against {_bj_comp_str}. "
+                + (f"Use case: {_deal_desc} " if _deal_desc else
+                   "The customer is evaluating enterprise servers for SAP HANA, AI inferencing, or mission-critical Linux/AIX workloads. ")
+                + f"Key technical requirements: IBM Power11 processor architecture, "
+                f"SAP HANA TDI certification, {_pw_mem_tb_bg:.0f} TB DDR5 memory, "
+                f"PowerVM enterprise hypervisor, 24×7 Expert Care support with committed fix-time. "
+                f"IBM Power11 meets all requirements and differentiates through on-chip MMA AI acceleration, "
+                f"hardware memory encryption, and the industry's largest certified SAP HANA memory per socket — "
+                f"key advantages against {_bj_comp_str}."
+            )
+        elif _bg_variants and not _is_scale_bid:
             # deterministic per session+deal_type to avoid rerun changes
             _bg_seed_key = f"_bg_variant_idx_{deal_type}"
             if _bg_seed_key not in st.session_state:
@@ -3540,7 +3754,27 @@ a.pl-card:hover { color: inherit !important; }
         _bj_inc_str    = (f"Incumbent: {_bj_incumbent}" + (f" ({_bj_inc_model})" if _bj_inc_model else "") + ". " if _bj_incumbent else "")
         _bj_budget_str = (f"Client's approximate budget: {_bj_budget} {curr2}. " if _bj_budget else "")
 
-        if _is_scale_bid:
+        if _is_power_bid:
+            # ── Power-specific business justification ────────────────────
+            _hint_business_just = (
+                f"Requested BP price: {bp2:,.0f} {curr2} (IBM list: {list_tot2:,.0f} {curr2}) — "
+                f"discount {discount_pct:.1f}%, {_dev_str}.\n\n"
+                + (f"Client's approximate budget: {_bj_budget} {curr2}.\n" if _bj_budget else "")
+                + (f"Incumbent: {_bj_incumbent}" + (f" ({_bj_inc_model})" if _bj_inc_model else "") + ".\n" if _bj_incumbent else "")
+                + f"\nJustification: The requested discount level is required to be competitive against "
+                f"{_bj_comp_str}, who are expected to submit proposals at significantly lower price points "
+                f"for this enterprise server evaluation. IBM list pricing is not competitive in the "
+                f"enterprise compute segment without exception support.\n\n"
+                f"IBM {_mname} justifies the investment through: "
+                f"(1) on-chip Power11 Matrix Math Accelerator (MMA) — AI inferencing without additional GPU cost; "
+                f"(2) SAP HANA TDI certification with the largest certified DDR5 memory per socket; "
+                f"(3) PowerVM enterprise hypervisor with live partition mobility and sub-second LPAR failover — "
+                f"capabilities unavailable in x86-based competing proposals.\n\n"
+                f"Failure to approve this discount will result in loss of the opportunity to {_bj_comp_str}. "
+                f"Winning this deal establishes IBM Power as the strategic compute platform at this account "
+                f"with significant follow-on expansion potential."
+            )
+        elif _is_scale_bid:
             _hint_business_just = (
                 f"Requested BP price: {bp2:,.0f} {curr2} (IBM list: {list_tot2:,.0f} {curr2}) — "
                 f"discount {discount_pct:.1f}%, {_dev_str}.\n\n"
@@ -3772,15 +4006,20 @@ a.pl-card:hover { color: inherit !important; }
                 'Key competitors&nbsp;<span style="color:#da1e28;font-size:13px">*</span></div>',
                 unsafe_allow_html=True,
             )
-            # Use SAN competitor list for SAN-only deals
+            # Use appropriate competitor list based on product line
             _bid_comp_options = (
-                COMPETITORS_SAN if _is_san_only else COMPETITORS_STORAGE
+                COMPETITORS_SAN if _is_san_only
+                else (COMPETITORS_POWER if _is_power_bid else COMPETITORS_STORAGE)
             )
-            # Auto-clear competitor selection if it contains storage-specific items when switching to SAN
-            _san_comp_names = {c for c in COMPETITORS_SAN}
+            # Auto-clear competitor selection if it contains items from a different product line
+            _san_comp_names     = {c for c in COMPETITORS_SAN}
             _storage_comp_names = {c for c in COMPETITORS_STORAGE}
+            _power_comp_names   = {c for c in COMPETITORS_POWER}
             _cur_sel = st.session_state["bid_competitors_sel"]
             if _is_san_only and any(c in _storage_comp_names - _san_comp_names for c in _cur_sel):
+                st.session_state["bid_competitors_sel"] = []
+                _cur_sel = []
+            elif _is_power_bid and any(c in _storage_comp_names - _power_comp_names for c in _cur_sel):
                 st.session_state["bid_competitors_sel"] = []
                 _cur_sel = []
             st.session_state["bid_competitors_sel"] = st.multiselect(
@@ -3814,7 +4053,19 @@ a.pl-card:hover { color: inherit !important; }
             _inc_model = st.session_state["bid_incumbent_model"]
             if _comp_list or _incumbent:
                 _comp_str = ", ".join(_comp_list) if _comp_list else "not specified"
-                if _is_san_only:
+                if _is_power_bid:
+                    _hint_comp = (
+                        f"This is a competitive IBM Power11 enterprise server opportunity. "
+                        + (f"Incumbent vendor: {_incumbent}" + (f" ({_inc_model})" if _inc_model else "") + ". " if _incumbent else "")
+                        + f"Key competitors: {_comp_str}. "
+                        f"Competing proposals are expected to be priced below IBM list price, "
+                        f"targeting the {bp2:,.0f} {curr2} range. "
+                        f"IBM Power11 differentiates through: on-chip MMA for AI inferencing, "
+                        f"SAP HANA TDI certification with the largest certified memory per socket, "
+                        f"PowerVM enterprise hypervisor — capabilities unavailable in competing proposals. "
+                        f"Source: [client feedback / partner insight / RFP documentation]."
+                    )
+                elif _is_san_only:
                     _hint_comp = (
                         f"This is a competitive SAN fabric refresh opportunity. "
                         + (f"Incumbent vendor: {_incumbent}" + (f" ({_inc_model})" if _inc_model else "") + ". " if _incumbent else "")
@@ -3961,9 +4212,13 @@ a.pl-card:hover { color: inherit !important; }
                         )
                         _dd_raw2 = st.session_state["due_date"]
                         _days_fwd = (_dd_raw2 - date.today()).days if hasattr(_dd_raw2, "strftime") else 0
-                        _bid_fn = (generate_scale_special_bid
-                                   if st.session_state["product_line"] == "scale"
-                                   else generate_special_bid)
+                        _pl_bid = st.session_state["product_line"]
+                        if _pl_bid == "power":
+                            _bid_fn = generate_power_special_bid
+                        elif _pl_bid == "scale":
+                            _bid_fn = generate_scale_special_bid
+                        else:
+                            _bid_fn = generate_special_bid
                         bid_bytes = _bid_fn(
                             project=project,
                             client_name=client_name,
