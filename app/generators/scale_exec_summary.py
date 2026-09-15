@@ -498,26 +498,64 @@ def _add_config_table(doc, project, model_info, T):
     protocols     = project.get("protocol_support", [])
     proto_str     = ", ".join(protocols) if protocols else "NFS, SMB, S3"
     num_data      = project.get("num_data_nodes", 0) or project.get("num_nodes", 1)
-    drives_node   = project.get("drives_per_node", 0) or project.get("drives_count", 0) // max(num_data, 1)
     edition       = project.get("scale_edition", "—")
     utility_nodes = project.get("utility_nodes", [])
 
-    # Utility nodes summary string: "1 × Protocol Node (5149-23E), 1 × Management Server (5149-23E)"
+    # Utility nodes summary — use authoritative qty from num_protocol_nodes when available
+    num_proto = project.get("num_protocol_nodes", 0)
     if utility_nodes:
         util_parts = []
         for u in utility_nodes:
-            util_parts.append(f"{u['qty']} × {u['type']} ({u['mtm']})")
+            qty_display = num_proto if ("Protocol" in u["type"] and num_proto > 0) else u["qty"]
+            util_parts.append(f"{qty_display} × {u['type']} ({u['mtm']})")
         util_str = ", ".join(util_parts)
+    elif num_proto:
+        util_str = f"{num_proto} × Protocol Node"
     else:
         util_str = "—"
 
+    # NVMe drive count per data node
+    nvme_per_node = project.get("drives_per_node", 0)
+    if not nvme_per_node and project.get("drives_count", 0):
+        nvme_per_node = project.get("drives_count", 0) // max(num_data, 1)
+
+    # Form factor — show HDD shelf when present (C1 model = 2U NVMe + 5U 4U102)
+    has_hdd  = project.get("has_hdd_shelf", False)
+    enc_var  = project.get("enclosure_variant", "")
+    base_ff  = model_info.get("form_factor", "2U")
+    if has_hdd and enc_var == "C1":
+        form_str = f"{base_ff} (NVMe server) + 5U (4U102 HDD shelf)"
+    elif has_hdd:
+        form_str = f"{base_ff} + 5U (4U102 HDD shelf)"
+    else:
+        form_str = base_ff
+    form_val = T["cfg_form_val"].format(ff=form_str)
+
+    # NVMe drive row
+    nvme_drives_str = str(nvme_per_node) if nvme_per_node else "—"
+
     rows = [
         (T["cfg_model"],      model_info.get("name", project.get("model_code", "—"))),
-        (T["cfg_form"],       T["cfg_form_val"].format(ff=model_info.get("form_factor", "2U"))),
+        (T["cfg_form"],       form_val),
         (T["cfg_data_nodes"], str(num_data)),
         (T["cfg_util_nodes"], util_str),
-        (T["cfg_drives"],     str(drives_node)),
+        (T["cfg_drives"],     nvme_drives_str),
         (T["cfg_drive_type"], project.get("drive_type", "—")),
+    ]
+
+    # HDD shelf rows — show separately when present
+    if has_hdd:
+        hdd_count = project.get("hdd_drives_count", 0)
+        hdd_type  = project.get("hdd_drive_type", "NL-SAS HDD")
+        hdd_raw   = project.get("hdd_raw_tib", 0.0)
+        hdd_raw_s = f"{hdd_raw:.1f} TiB" if hdd_raw else "—"
+        rows += [
+            ("HDD Shelf — Drive Count", f"{hdd_count} × {hdd_type.split(' ')[0]} NL-SAS HDD" if hdd_count else "—"),
+            ("HDD Shelf — Drive Type",  hdd_type),
+            ("HDD Shelf — Raw Capacity", hdd_raw_s),
+        ]
+
+    rows += [
         (T["cfg_network"],    project.get("network_type", "—")),
         (T["cfg_fs"],         project.get("filesystem_type", "IBM Storage Scale (GPFS)")),
         (T["cfg_edition"],    edition),

@@ -154,6 +154,7 @@ def _parse_ess_csv(source) -> dict[str, Any]:
         r"|ESS Management Server"
         r"|ESS Capacity Model\s*\d+.*Data Server"
         r"|ESS Capacity Model\s*\d+.*4U102"
+        r"|^Storage$"
         r"|Switch\s*\d+)",
         re.IGNORECASE,
     )
@@ -264,7 +265,10 @@ def _parse_ess_csv(source) -> dict[str, Any]:
         # Classify
         is_data_node     = bool(re.search(r"IBM ESS\s*\d+", name, re.IGNORECASE))
         is_capacity_data = bool(re.search(r"ESS Capacity Model.*Data Server", name, re.IGNORECASE))
-        is_hdd_shelf     = bool(re.search(r"ESS Capacity Model.*4U102", name, re.IGNORECASE))
+        is_hdd_shelf     = (
+            bool(re.search(r"ESS Capacity Model.*4U102", name, re.IGNORECASE))
+            or name.strip().upper() == "STORAGE"
+        )
         is_protocol_node = "Protocol" in name
         is_mgmt_node     = "Management" in name
         is_switch        = "Switch" in name
@@ -302,12 +306,12 @@ def _parse_ess_csv(source) -> dict[str, Any]:
             if not product or product in ("Product",):
                 continue
 
-            # ── HDD shelf (4U102) ──────────────────────────────────────────
+            # ── HDD shelf (4U102 or "Storage" subsystem) ──────────────────
             if is_hdd_shelf:
-                # HDD drives — AJRD or any feature with SAS/HDD desc
-                if re.match(r"^[A-Z]{4}$", product):
+                # HDD drives — feature code with HDD/SAS desc (AJQB, AJRD, etc.)
+                if re.match(r"^[A-Z0-9]{4,5}$", product):
                     _dm = re.search(r"([\d.]+\s*TB\b)", desc, re.IGNORECASE)
-                    if _dm and re.search(r"HDD|SAS|SATA|NL-SAS", desc, re.IGNORECASE):
+                    if _dm and re.search(r"HDD|SAS|SATA|NL-SAS|Enterprise SAS|SAS HDD", desc, re.IGNORECASE):
                         if "hdd_drive_type" not in result:
                             result["hdd_drive_type"]       = desc.strip()
                             result["hdd_drives_per_shelf"] = qty
@@ -332,8 +336,12 @@ def _parse_ess_csv(source) -> dict[str, Any]:
                     result["model_code"] = product
                     result["num_data_nodes"] = max(result["num_data_nodes"], qty)
 
-                # NVMe drives — AJRO, AJRS, etc. or generic NVMe desc
-                if re.match(r"^[A-Z]{4}$", product):
+                # AJPB / similar: detect C1 enclosure variant
+                if product == "AJPB" and not result.get("enclosure_variant"):
+                    result["enclosure_variant"] = "C1"
+
+                # NVMe drives — AJRO, AJRS, AJRN, etc. or generic NVMe desc
+                if re.match(r"^[A-Z0-9]{4,5}$", product):
                     _dm = re.search(r"([\d.]+\s*TB\b)", desc, re.IGNORECASE)
                     if _dm and ("NVMe" in desc or "SSD" in desc or "PCIe" in desc):
                         if not result["drive_type"]:
@@ -347,7 +355,6 @@ def _parse_ess_csv(source) -> dict[str, Any]:
                         result["network_ports"] += qty * 2
                         result["ib_adapters"]   += qty
                         if not result["ib_adapter_desc"]:
-                            # Strip feature code prefix from desc if present
                             _ad = desc.strip()
                             result["ib_adapter_desc"] = _ad
 
@@ -362,8 +369,8 @@ def _parse_ess_csv(source) -> dict[str, Any]:
                     if "Crypto" in desc:
                         result["encryption"] = True
 
-                # Support codes
-                if product.startswith("ALK"):
+                # Support codes — ALK* (older) and ALJ* (newer ESS configs)
+                if product.startswith("ALK") or product.startswith("ALJ"):
                     result["support_codes"].append(product)
 
                 # Software edition
@@ -406,11 +413,11 @@ def _parse_ess_csv(source) -> dict[str, Any]:
                     if re.search(r"Processor|CPU|EPYC|Xeon", desc, re.IGNORECASE) and not u["cpu"]:
                         u["cpu"] = desc.strip()
 
-                # Support
-                if product.startswith("ALK"):
+                # Support codes — ALK* (older) and ALJ* (newer ESS utility nodes)
+                if product.startswith("ALK") or product.startswith("ALJ"):
                     result["support_codes"].append(product)
 
-                # Support product code (5249-A05 = Expert Care Advanced 5Y)
+                # Support product code (5249-A05 = Advanced, 5249-B05 = Basic)
                 if re.match(r"^5249-", product):
                     price = _parse_price(raw[3]) if len(raw) > 3 else 0.0
                     if price:
@@ -452,16 +459,52 @@ def _parse_ess_csv(source) -> dict[str, Any]:
     if _summary_qty_overrides.get("protocol_nodes"):
         result["num_protocol_nodes"] = _summary_qty_overrides["protocol_nodes"]
 
-    # Resolve support info
+    # Resolve support info — also inspect 5249-* product codes directly
     from app.knowledge.product_db import get_support_info, SUPPORT_CODES
+    # Scan rows for 5249-* support product codes (authoritative for ESS support level)
+    _support_product_code = None
+    for row in rows:
+        raw = [c.strip().strip('"') for c in row]
+        product = raw[0] if raw else ""
+        desc    = raw[1] if len(raw) > 1 else ""
+        if re.match(r"^5249-", product) and "Price" not in desc:
+            _support_product_code = (product, desc)
+            break  # use first found
+
     for code in result["support_codes"]:
         info = get_support_info(code)
         if info:
             result["support_info"] = info
             break
+    if not result["support_info"] and _support_product_code:
+        # Derive support level from 5249-* product description
+        prod, desc = _support_product_code
+        _sl_desc = desc.lower()
+        if "premium" in _sl_desc:
+            result["support_info"] = SUPPORT_CODES.get("ALKG")  # Premium 5Y
+        elif "advanced" in _sl_desc:
+            result["support_info"] = SUPPORT_CODES.get("ALK5")  # Advanced 5Y
+        elif "basic" in _sl_desc:
+            result["support_info"] = {
+                "name":           "IBM Storage Expert Care Basic 5 Year",
+                "level":          "Basic",
+                "years":          5,
+                "coverage":       "9×5",
+                "fix_time":       False,
+                "fix_time_hours": None,
+                "description":    "9×5 business-hours support, no hardware fix-time SLA.",
+            }
     if not result["support_info"]:
-        # ALK5 = Expert Care Advanced 5 Year — default for ESS
-        result["support_info"] = SUPPORT_CODES.get("ALK5")
+        # Default fallback: Basic 5Y (ESS configs without explicit EC often use Basic)
+        result["support_info"] = {
+            "name":           "IBM Storage Expert Care Basic 5 Year",
+            "level":          "Basic",
+            "years":          5,
+            "coverage":       "9×5",
+            "fix_time":       False,
+            "fix_time_hours": None,
+            "description":    "9×5 business-hours support, no hardware fix-time SLA.",
+        }
 
     return result
 
@@ -495,14 +538,11 @@ def _parse_ess_xlsx(source) -> dict[str, Any]:
     xf = pd.ExcelFile(source)
 
     # ── Summary sheet ─────────────────────────────────────────────────────────
-    # Two possible layouts:
-    # A) Single pool (NVMe or HDD):
-    #      col[0]=label, col[1]=System value, col[2]=System value (PB/PiB)
-    # B) Dual pool (NVMe Pool + HDD Pool):
-    #      col[0]=label, col[1]=NVMe System, col[2]=NVMe System PB,
-    #      col[3]="NVMe Pool", ..., col[8]=HDD System, col[9]=HDD System PB
-    #      col[10]="HDD Pool"
-    # When NVMe Pool values are all zero (pure HDD config), fall back to HDD Pool cols.
+    # Dual-pool layout (NVMe Pool + HDD Pool):
+    #   col[0]=label  col[1]=NVMe System  col[2]=NVMe PB  ...
+    #   col[7]=HDD label  col[8]=HDD System  col[9]=HDD PB  col[10]="HDD Pool" (total header)
+    # STORM (HDD-only): NVMe col[1] = 0, HDD values in col[8]/col[9]
+    # Single-pool (NVMe-only): values in col[1]/col[2]
     if "Summary" in xf.sheet_names:
         df = xf.parse("Summary", header=None)
         _state = None
@@ -510,39 +550,28 @@ def _parse_ess_xlsx(source) -> dict[str, Any]:
         _raw_tb_set = _usable_tb_set = _eff_tb_set = False
         _raw_tib_set = _usable_tib_set = _eff_tib_set = False
 
-        # First pass: detect if this is a dual-pool sheet and if NVMe pool is empty
-        _col_offset = 1   # default: single-pool, value in col[1]
-        _col_offset2 = 2  # second value (TiB/GiB) in col[2]
-        for _, row in df.iterrows():
-            vals = [str(v).strip() if pd.notna(v) else "" for v in row]
-            # Detect "HDD Pool" label in column headers row
-            if len(vals) > 10 and vals[10] == "HDD Pool":
-                # Dual-pool sheet: check if NVMe pool (col 1) has data
-                # by scanning for any non-zero TB value in col[1]
-                break
-        else:
-            pass
-
-        # Scan for non-zero values in col[1] to decide which column set to use
+        # First pass: find "HDD Pool" / "NVMe Pool" header columns and check if NVMe has data
+        _col_offset  = 1   # default: single-pool, value in col[1]
+        _col_offset2 = 2   # second value (TiB/GiB) in col[2]
+        _hdd_sys_col = None   # column index where HDD System values live
         _nvme_has_data = False
-        _hdd_col_start = None
+
         for _, row in df.iterrows():
             vals = [str(v).strip() if pd.notna(v) else "" for v in row]
-            # Detect column layout by looking for "HDD Pool" / "NVMe Pool" markers
             for ci, v in enumerate(vals):
-                if v in ("HDD Pool",):
-                    _hdd_col_start = ci
-                if v in ("NVMe Pool",):
-                    pass
-            # Check if col[1] contains any non-zero TB/GiB values
+                # "HDD Pool" total-column header is at ci; System values are 2 cols to the left
+                # Layout: ..., I="System val", J="PB val", K="HDD Pool"
+                if v == "HDD Pool" and ci >= 2:
+                    _hdd_sys_col = ci - 2   # e.g. ci=10 → col 8
+            # Check if col[1] has any non-zero capacity value
             v1_probe = vals[1] if len(vals) > 1 else ""
             if v1_probe and re.search(r"[1-9]", v1_probe) and ("TB" in v1_probe or "GB/s" in v1_probe):
                 _nvme_has_data = True
 
-        # If NVMe pool is empty but HDD pool exists, shift column offsets
-        if not _nvme_has_data and _hdd_col_start is not None:
-            _col_offset  = _hdd_col_start + 1  # e.g. col[9] for HDD System value
-            _col_offset2 = _hdd_col_start + 2
+        # If NVMe pool is empty but HDD pool exists, use HDD column offsets
+        if not _nvme_has_data and _hdd_sys_col is not None:
+            _col_offset  = _hdd_sys_col
+            _col_offset2 = _hdd_sys_col + 1
 
         for _, row in df.iterrows():
             vals = [str(v).strip() if pd.notna(v) else "" for v in row]
