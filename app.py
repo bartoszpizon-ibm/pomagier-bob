@@ -18,7 +18,7 @@ import streamlit.components.v1 as _components
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from app.parsers.econfig_parser import parse_project, parse_project_csv_only
+from app.parsers.econfig_parser import parse_project, parse_project_csv_only, scan_performance_reports
 from app.parsers.scale_parser import parse_scale_project
 from app.parsers.power_parser import parse_power_project
 from app.parsers.bid_parser import parse_bid_docx
@@ -2072,6 +2072,47 @@ a.pl-card:hover { color: inherit !important; }
 
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
+    # ── Performance report selector (FlashSystem only, when perf file has >1 report) ──
+    _perf_report_index = 0
+    if not _is_scale and not _is_power and perf_file is not None:
+        _perf_buf_scan = io.BytesIO(perf_file.read())
+        _perf_reports  = scan_performance_reports(_perf_buf_scan)
+        if len(_perf_reports) > 1:
+            # Cache report list in session to avoid re-scanning on every rerun
+            _scan_key = f"_perf_reports_{perf_file.name}"
+            if _scan_key not in st.session_state:
+                st.session_state[_scan_key] = _perf_reports
+            _cached_reports = st.session_state[_scan_key]
+
+            st.markdown(
+                notif("info",
+                      f"📊 Performance file contains <b>{len(_cached_reports)} reports</b> "
+                      f"for different configurations. Select the one that matches your e-config:"),
+                unsafe_allow_html=True,
+            )
+            _perf_labels = [r["label"] for r in _cached_reports]
+            _perf_sel_key = f"_perf_report_sel_{perf_file.name}"
+            _perf_sel_lbl = st.selectbox(
+                "Performance report to use",
+                options=_perf_labels,
+                key=_perf_sel_key,
+                help="Choose the report that matches the model and capacity of your e-config CSV",
+            )
+            _perf_report_index = _perf_labels.index(_perf_sel_lbl)
+            # Show selected report details
+            _sel_r = _cached_reports[_perf_report_index]
+            st.markdown(
+                f'<div style="font-size:11px;color:var(--gray-70);margin:2px 0 6px;'
+                f'border-left:3px solid var(--blue-60);padding:4px 8px;background:#f0f5ff;">'
+                f'<b>Selected:</b> {_sel_r["title"]}</div>',
+                unsafe_allow_html=True,
+            )
+        elif len(_perf_reports) == 1:
+            _perf_report_index = 0
+        # Rewind the file for actual parsing later
+        _perf_buf_scan.seek(0)
+        perf_file = _perf_buf_scan   # replace with buffered version
+
     # CSV-only mode notice
     _csv_only_mode = (csv_file is not None and capacity_file is None and not _is_scale and not _is_power)
     if _csv_only_mode:
@@ -2128,10 +2169,15 @@ a.pl-card:hover { color: inherit !important; }
 
                     if capacity_file is not None:
                         _cap_buf  = io.BytesIO(capacity_file.read())
-                        _perf_buf = io.BytesIO(perf_file.read()) if perf_file else None
+                        if perf_file is not None:
+                            _pf_bytes = perf_file.read() if not isinstance(perf_file, io.BytesIO) else perf_file.read()
+                            _perf_buf = io.BytesIO(_pf_bytes)
+                        else:
+                            _perf_buf = None
                         project = parse_project(
                             _csv_buf, _cap_buf,
                             performance_xlsx_source=_perf_buf,
+                            perf_report_index=_perf_report_index,
                         )
                     else:
                         # CSV-only path — no XLSX available

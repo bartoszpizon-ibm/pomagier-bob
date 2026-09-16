@@ -22,6 +22,7 @@ def parse_project(
     csv_source,
     capacity_xlsx_source,
     performance_xlsx_source=None,
+    perf_report_index: int = 0,
 ) -> dict[str, Any]:
     """
     Parse all input files and return a unified project data dict.
@@ -30,13 +31,16 @@ def parse_project(
         csv_source: path string, Path, or file-like object (e-config CSV).
         capacity_xlsx_source: path/file-like (Storage Modeller capacity XLSX).
         performance_xlsx_source: path/file-like (Storage Modeller performance XLSX), optional.
+        perf_report_index: 0-based index of the report to extract when the
+            performance XLSX contains multiple configurations (default: 0).
 
     Returns:
         dict with keys: hardware, pricing, capacity, performance, support, environment.
     """
     hw = _parse_econfig_csv(csv_source)
     cap = _parse_capacity_xlsx(capacity_xlsx_source)
-    perf = _parse_performance_xlsx(performance_xlsx_source) if performance_xlsx_source else {}
+    perf = (_parse_performance_xlsx(performance_xlsx_source, report_index=perf_report_index)
+            if performance_xlsx_source else {})
 
     merged = {**hw, **cap, **perf}
     # _extra_cache_gb from CSV is not reliable — Storage Modeller XLSX already
@@ -780,8 +784,92 @@ def _parse_capacity_xlsx(source) -> dict[str, Any]:
 # Performance XLSX parser
 # ---------------------------------------------------------------------------
 
-def _parse_performance_xlsx(source) -> dict[str, Any]:
-    """Parse Storage Modeller performance XLSX."""
+def scan_performance_reports(source) -> list[dict]:
+    """
+    Scan a Storage Modeller performance XLSX and return a list of all
+    embedded reports (one per configuration block).
+
+    Each entry: {
+        "index":       int,   # 0-based index within Workload Details sheet
+        "title":       str,   # full title string, e.g. "FlashSystem 7600 #1 - 300TBu …"
+        "label":       str,   # short UI label, e.g. "FS7600 — 300 TiB"
+        "model_short": str,   # e.g. "FS7600"
+        "usable_tib":  float, # effective capacity used (TiB) from Workload Details
+        "iops_total":  int,   # configured total IOPS
+    }
+
+    Returns a list with one entry if the file contains a single report.
+    Returns [] if the file cannot be read.
+    """
+    try:
+        if hasattr(source, "seek"):
+            source.seek(0)
+        xf = pd.ExcelFile(source)
+    except Exception:
+        return []
+
+    if "Workload Details" not in xf.sheet_names:
+        return []
+
+    df = xf.parse("Workload Details", header=None)
+
+    reports: list[dict] = []
+    current: dict | None = None
+
+    for _, row in df.iterrows():
+        vals = [str(v).strip() if pd.notna(v) else "" for v in row]
+        label_cell = vals[0]
+        val_cell   = vals[1] if len(vals) > 1 else ""
+
+        # New report block starts with a FlashSystem title row
+        m_title = re.match(
+            r"(FlashSystem\s+\d+\s+#\d+)\s*[-–]\s*([\d.]+\s*TBu?)\s*(FS\d+)",
+            label_cell, re.IGNORECASE,
+        )
+        if m_title:
+            if current is not None:
+                reports.append(current)
+            usable_raw = m_title.group(2).strip()
+            usable_num = float(re.sub(r"[^\d.]", "", usable_raw))
+            current = {
+                "index":       len(reports),
+                "title":       label_cell,
+                "label":       f"{m_title.group(3)} — {usable_num:.0f} TiB",
+                "model_short": m_title.group(3),
+                "usable_tib":  usable_num,
+                "iops_total":  0,
+            }
+            continue
+
+        if current is None:
+            continue
+
+        if "Total I/O Rate" in label_cell and "Sequential" not in label_cell:
+            try:
+                current["iops_total"] = int(float(val_cell))
+            except (ValueError, TypeError):
+                pass
+
+    if current is not None:
+        reports.append(current)
+
+    # Annotate label with IOPS
+    for r in reports:
+        if r["iops_total"]:
+            r["label"] += f" · {r['iops_total']:,} IOPS"
+
+    return reports
+
+
+def _parse_performance_xlsx(source, report_index: int = 0) -> dict[str, Any]:
+    """
+    Parse Storage Modeller performance XLSX.
+
+    Args:
+        source:       file-like or path.
+        report_index: 0-based index of the report to extract when the file
+                      contains multiple configurations (default: 0 = first).
+    """
     result: dict[str, Any] = {
         "perf_iops_total": 0,
         "perf_iops_read": 0,
@@ -806,15 +894,32 @@ def _parse_performance_xlsx(source) -> dict[str, Any]:
     except Exception:
         return result
 
-    # --- Workload Details ---
+    # --- Workload Details — skip to report_index block ---
+    _is_title_row = lambda s: bool(re.match(
+        r"FlashSystem\s+\d+\s+#\d+", s, re.IGNORECASE
+    ))
+
     if "Workload Details" in xf.sheet_names:
         df = xf.parse("Workload Details", header=None)
+        _block = -1
+        _in_block = False
         for _, row in df.iterrows():
             vals = [str(v).strip() if pd.notna(v) else "" for v in row]
             if len(vals) < 2:
                 continue
             label = vals[0]
-            val = vals[1]
+            val   = vals[1]
+
+            # Detect start of a new report block
+            if _is_title_row(label):
+                _block += 1
+                _in_block = (_block == report_index)
+                if _in_block:
+                    result["perf_workload_name"] = label
+                continue
+
+            if not _in_block:
+                continue
 
             if "Total I/O Rate" in label and "Sequential" not in label:
                 result["perf_iops_total"] = int(float(val)) if _is_number(val) else 0
@@ -829,42 +934,58 @@ def _parse_performance_xlsx(source) -> dict[str, Any]:
             elif "Total Data Rate" in label and "Sequential" not in label:
                 result["perf_throughput_mib"] = float(val) if _is_number(val) else 0.0
             elif "Total Cache Read Hits" in label:
-                # "Total Cache Read Hits (%)" — primary cache hit metric
                 result["perf_cache_hit_pct"] = float(val) if _is_number(val) else 0.0
             elif "Cache Random Read Hits" in label and result["perf_cache_hit_pct"] == 0.0:
-                # Fallback to random-only metric if total not yet set
                 result["perf_cache_hit_pct"] = float(val) if _is_number(val) else 0.0
 
-    # --- Response Times ---
-    if "Response Times" in xf.sheet_names:
-        df = xf.parse("Response Times", header=None)
+    # --- Response Times Details — use detail sheet when present (multi-report aware) ---
+    # "Response Times Details" has same block structure as Workload Details.
+    # Fallback: "Response Times" sheet (single-report file).
+    _rt_sheet = ("Response Times Details"
+                 if "Response Times Details" in xf.sheet_names
+                 else "Response Times" if "Response Times" in xf.sheet_names
+                 else None)
+
+    if _rt_sheet:
+        df = xf.parse(_rt_sheet, header=None)
         target_iops = result["perf_iops_total"]
-        best_diff = float("inf")
+        best_diff   = float("inf")
         best_latency = 0.0
         max_iops_sub1ms = 0
         latency_at_max_sub1ms = 0.0
-
         bandwidth_at_max_sub1ms = 0.0
 
+        _block = -1
+        _in_block = (_rt_sheet == "Response Times")  # single-report: always in block
         for _, row in df.iterrows():
             vals = list(row)
-            # Each data row has a numeric triplet: IOPS, Data Rate (MiB/s), Latency (ms)
+            vals_str = [str(v).strip() if pd.notna(v) else "" for v in vals]
+            label0 = vals_str[0] if vals_str else ""
+
+            # Detect block header in multi-report detail sheet
+            if _rt_sheet == "Response Times Details" and _is_title_row(label0):
+                _block += 1
+                _in_block = (_block == report_index)
+                continue
+
+            if not _in_block:
+                continue
+
+            # Data rows: look for numeric triplets (IOPS, MiB/s, ms)
             nums = [v for v in vals if isinstance(v, (int, float)) and pd.notna(v)]
             if len(nums) >= 3:
                 iops_val      = nums[0]
-                bandwidth_val = nums[1]   # Data Rate (MiB/s)
+                bandwidth_val = nums[1]
                 latency_val   = nums[2]
 
-                # Latency at the configured workload IOPS
                 diff = abs(iops_val - target_iops)
                 if diff < best_diff:
                     best_diff    = diff
                     best_latency = latency_val
 
-                # Max IOPS while staying below 1 ms latency
                 if latency_val < 1.0 and iops_val > max_iops_sub1ms:
-                    max_iops_sub1ms       = int(round(iops_val))
-                    latency_at_max_sub1ms = round(latency_val, 3)
+                    max_iops_sub1ms         = int(round(iops_val))
+                    latency_at_max_sub1ms   = round(latency_val, 3)
                     bandwidth_at_max_sub1ms = round(bandwidth_val, 1)
 
         if best_latency > 0:
