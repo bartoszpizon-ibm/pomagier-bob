@@ -2170,8 +2170,9 @@ a.pl-card:hover { color: inherit !important; }
                     if capacity_file is not None:
                         _cap_buf  = io.BytesIO(capacity_file.read())
                         if perf_file is not None:
-                            _pf_bytes = perf_file.read() if not isinstance(perf_file, io.BytesIO) else perf_file.read()
-                            _perf_buf = io.BytesIO(_pf_bytes)
+                            if isinstance(perf_file, io.BytesIO):
+                                perf_file.seek(0)
+                            _perf_buf = io.BytesIO(perf_file.read())
                         else:
                             _perf_buf = None
                         project = parse_project(
