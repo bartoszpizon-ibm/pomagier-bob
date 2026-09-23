@@ -910,6 +910,19 @@ def _load_sales_reps() -> tuple[list[str], dict[str, str]]:
         "Mirosław Pura", "Piotr Sękowski",
     ]
     _fallback_country = {n: "PL" for n in _fallback_names}
+
+    # Reverse lookup: country name (lower) → ISO code.
+    # Includes alternate/local spellings that users may type in Excel.
+    _NAME_TO_ISO: dict[str, str] = {v.lower(): k for k, v in _COUNTRY_NAMES_MAP.items()}
+    _NAME_TO_ISO.update({
+        "czechia": "CZ", "czech republic": "CZ", "slovakia": "SK",
+        "the netherlands": "NL", "holland": "NL",
+        "great britain": "GB", "england": "GB", "uk": "GB",
+        "usa": "US", "united states of america": "US",
+        "uae": "AE", "emirates": "AE",
+    })
+    _NAME_TO_ISO = {k.lower(): v for k, v in _NAME_TO_ISO.items()}
+
     try:
         import pandas as _pd
         _xlsx_path = Path(__file__).parent / "users.xlsx"
@@ -918,22 +931,28 @@ def _load_sales_reps() -> tuple[list[str], dict[str, str]]:
         _df = _pd.read_excel(_xlsx_path, sheet_name="Sales Reps", dtype=str).fillna("")
         # normalise column names
         _df.columns = [c.strip().lower() for c in _df.columns]
-        _name_col    = next((c for c in _df.columns if "name" in c), None)
-        _code_col    = next((c for c in _df.columns if "code" in c or c == "country code (iso)"), None)
+        _name_col    = next((c for c in _df.columns if "name"   in c), None)
+        _code_col    = next((c for c in _df.columns if "code"   in c), None)
+        _cname_col   = next((c for c in _df.columns if "country" in c and "code" not in c), None)
         _active_col  = next((c for c in _df.columns if "active" in c), None)
         if _name_col is None:
             return ["— wybierz —"] + _fallback_names, _fallback_country
         # filter active
         if _active_col:
-            _df = _df[_df[_active_col].str.upper().isin(["YES", "Y", "TAK", "1", "TRUE", ""])]
-        names   = sorted([n.strip() for n in _df[_name_col].tolist() if n.strip()])
-        country_map = {}
-        if _code_col:
-            for _, row in _df.iterrows():
-                n = row[_name_col].strip()
-                c = row[_code_col].strip().upper()
-                if n:
-                    country_map[n] = c
+            _df = _df[_df[_active_col].str.strip().str.upper().isin(["YES", "Y", "TAK", "1", "TRUE", ""])]
+        names = sorted([n.strip() for n in _df[_name_col].tolist() if n.strip()])
+        country_map: dict[str, str] = {}
+        for _, row in _df.iterrows():
+            n = row[_name_col].strip()
+            if not n:
+                continue
+            # 1. explicit ISO code column
+            iso = row[_code_col].strip().upper() if _code_col else ""
+            # 2. if empty, try to resolve from Country Name column
+            if not iso and _cname_col:
+                cname = row[_cname_col].strip()
+                iso = _NAME_TO_ISO.get(cname.lower(), "")
+            country_map[n] = iso
         return ["— wybierz —"] + names, country_map
     except Exception:
         return ["— wybierz —"] + _fallback_names, _fallback_country
