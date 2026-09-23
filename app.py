@@ -2848,7 +2848,7 @@ a.pl-card:hover { color: inherit !important; }
             + _tile("Data Reduction", _dr_str if (_comp_pct or _dedup_pct) else "—",
                     _dr_detail if (_comp_pct or _dedup_pct) else "")
             + _tile("Cache", f"{project.get('cache_gb', 0)} GB" if project.get('cache_gb') else "—",
-                    "per I/O group")
+                    f"per I/O group · {project.get('io_groups', 2)} I/O group{'s' if project.get('io_groups', 2) != 1 else ''}")
             + _tile("Support", _sup_name,
                     f"{_sup_years} yr{' ' + _sup_fix_str if _sup_fix_str else ''}" if _sup_years != "—" else "—")
             + _tile("Workload IOPS &lt;1ms",

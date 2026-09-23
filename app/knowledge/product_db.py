@@ -321,11 +321,11 @@ _DOCS: dict[str, dict[str, str]] = {
         "docs_url":         "https://www.ibm.com/docs/en/flashsystem-9x00/9.1.3?topic=flashsystem-9600",
         "sales_manual_url": "https://www.ibm.com/docs/en/announcements/family-507801-storage-flashsystem-9600",
     },
-    "FSC200": {
+    "C200": {
         "docs_url":         "https://www.ibm.com/docs/en/flashsystem-c200",
         "sales_manual_url": "https://www.ibm.com/docs/en/announcements/family-512701-storage-flashsystem-c200",
     },
-    "FSC300": {
+    "C300": {
         "docs_url":         "https://www.ibm.com/docs/en/flashsystem-5x00",
         "sales_manual_url": "https://www.ibm.com/docs/en/announcements/family-520202-flashsystem-c300",
     },
@@ -735,7 +735,7 @@ MODEL_DB: dict[str, dict] = {
     # ── FlashSystem C200 ────────────────────────────────────────────────────────
     "5076-C20": {
         "name": "IBM FlashSystem C200",
-        "short": "FSC200",
+        "short": "C200",
         "family": "FlashSystem",
         "form_factor": "2U",
         "total_drive_slots": 24,
@@ -759,7 +759,7 @@ MODEL_DB: dict[str, dict] = {
     },
     "5202-C25": {
         "name": "IBM FlashSystem C200",
-        "short": "FSC200",
+        "short": "C200",
         "family": "FlashSystem",
         "form_factor": "2U",
         "total_drive_slots": 24,
@@ -785,7 +785,7 @@ MODEL_DB: dict[str, dict] = {
     },
     "5147-FC2": {
         "name": "IBM FlashSystem C200",
-        "short": "FSC200",
+        "short": "C200",
         "family": "FlashSystem",
         "form_factor": "2U",
         "total_drive_slots": 24,
@@ -810,7 +810,7 @@ MODEL_DB: dict[str, dict] = {
     # ── FlashSystem C300 ────────────────────────────────────────────────────────
     "5202-C30": {
         "name": "IBM Storage FlashSystem C300",
-        "short": "FSC300",
+        "short": "C300",
         "family": "FlashSystem",
         "form_factor": "1U",
         "total_drive_slots": 12,

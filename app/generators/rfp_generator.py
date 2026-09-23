@@ -92,11 +92,11 @@ def generate_rfp(
 # Source: IBM FlashSystem Sales Manual
 _MAX_DRIVE_SLOTS: dict[str, int] = {
     "FS5600": 12, "FS5200": 12,          # 1U, 12 drive slots
-    "FSC300": 12,                        # 1U, 12 drive slots
+    "C300": 12,                          # 1U, 12 drive slots
     "FS5045": 24, "FS5015": 24,          # 2U, 24 drive slots
     "FS7600": 32, "FS7300": 24,          # FS7600=32, FS7300=24
     "FS9600": 32, "FS9500": 48,          # FS9600=32, FS9500=48
-    "FSC200": 24,
+    "C200": 24,
 }
 
 # Controller CPU core counts per model family (short name → total cores across both nodes/controllers)
@@ -109,10 +109,10 @@ _CONTROLLER_CORES: dict[str, tuple[int, str]] = {
     "FS7300": (32, "2 nodes × 1 CPU per node × 16 cores = 32 cores total"),
     "FS5600": (24, "2 nodes × 1 CPU per node × 12 cores = 24 cores total"),
     "FS5200": (24, "2 nodes × 1 CPU per node × 12 cores = 24 cores total"),
-    "FSC300": (24, "2 nodes × 1 CPU per node × 12 cores = 24 cores total"),
+    "C300":   (24, "2 nodes × 1 CPU per node × 12 cores = 24 cores total"),
     "FS5045": (24, "2 nodes × 1 CPU per node × 12 cores = 24 cores total"),
     "FS5015": (16, "2 nodes × 1 CPU per node × 8 cores = 16 cores total"),
-    "FSC200": (40, "2 nodes × 2 CPUs per node × 10 cores = 40 cores total"),
+    "C200":   (40, "2 nodes × 2 CPUs per node × 10 cores = 40 cores total"),
 }
 
 

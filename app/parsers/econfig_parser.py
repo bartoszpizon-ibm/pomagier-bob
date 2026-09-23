@@ -157,9 +157,9 @@ def parse_project_csv_only(csv_source) -> dict[str, Any]:
         cache_gb = 768
     elif re.match(r"5127-|5126-", _model):  # FS5600 / FS5200
         cache_gb = 256
-    elif re.match(r"5202-C3", _model):      # FSC300 (FlashSystem C300)
-        cache_gb = 256
-    elif re.match(r"5202-|5147-|5076-", _model):  # FSC200
+    elif re.match(r"5202-C3", _model):      # C300 (FlashSystem C300) — 512 GB per single I/O group
+        cache_gb = 512
+    elif re.match(r"5202-|5147-|5076-", _model):  # C200
         cache_gb = 256
     elif re.match(r"4680-", _model):        # FS5045 / FS5015
         cache_gb = 64
@@ -170,8 +170,9 @@ def parse_project_csv_only(csv_source) -> dict[str, Any]:
 
     # --- I/O group count per model family ---
     # FS5045/FS5015 (4680-xxx): 1 I/O group (single controller pair)
+    # C300 (5202-C3*): 1 I/O group (single controller pair)
     # All other FlashSystem models: 2 I/O groups
-    if re.match(r"4680-", _model):
+    if re.match(r"4680-|5202-C3", _model):
         _io_groups = 1
     else:
         _io_groups = 2
@@ -654,7 +655,8 @@ def _parse_capacity_xlsx(source) -> dict[str, Any]:
             desc_val = vals[_ri.get("description", 0)] if vals else ""
 
             if desc_val == "NVMe":
-                result["is_hybrid"] = True
+                # Do NOT set is_hybrid here — NVMe row appears in both all-NVMe and hybrid
+                # systems; is_hybrid is only set when an HDD tier row is also found below.
                 result["nvme_raw_tb"]     = _parse_capacity_val(_col("raw capacity (tb)"))
                 result["nvme_raw_tib"]    = _parse_capacity_val(_col("raw capacity (tib)"))
                 result["nvme_usable_tb"]  = _parse_capacity_val(_col("usable capacity (tb)"))
