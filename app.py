@@ -901,18 +901,26 @@ DISTRIBUTORS = ["— wybierz —", "Arrow Electronics", "Arrow ECS Baltic", "TD 
 # Columns: Full Name | Country Code (ISO) | Country Name | Active (YES/NO)
 # Falls back to the hardcoded list if the file is missing or unreadable.
 
-def _load_sales_reps() -> tuple[list[str], dict[str, str]]:
-    """Return (sorted_name_list_with_placeholder, {name: country_code}) from users.xlsx."""
+def _load_sales_reps() -> tuple[list[str], dict[str, list[str]]]:
+    """
+    Read users.xlsx and return:
+      - sorted name list with placeholder at index 0
+      - {name: [iso_code, ...]} — list of territory ISO codes per rep
+
+    Active column rules: only "YES"/"Y"/"TAK"/"1"/"TRUE" → active.
+    Empty Active cell = inactive (NO).
+    Country Code may be comma-separated (e.g. "PL, LT, LV, EE").
+    If Country Code is blank but Country Name is filled, ISO is auto-resolved.
+    """
     _fallback_names = [
         "Adam Karaszewski", "Artur Król", "Bartosz Pizon", "Daniel Kudyba",
         "Dawid Dołowy", "Dominik Dabrowski", "Jacek Goździk", "Józef Angelus",
         "Łukasz Pikur", "Łukasz Stolarczyk", "Łukasz Winiarski", "Maryia Shulhach",
         "Mirosław Pura", "Piotr Sękowski",
     ]
-    _fallback_country = {n: "PL" for n in _fallback_names}
+    _fallback_country: dict[str, list[str]] = {n: ["PL"] for n in _fallback_names}
 
     # Reverse lookup: country name (lower) → ISO code.
-    # Includes alternate/local spellings that users may type in Excel.
     _NAME_TO_ISO: dict[str, str] = {v.lower(): k for k, v in _COUNTRY_NAMES_MAP.items()}
     _NAME_TO_ISO.update({
         "czechia": "CZ", "czech republic": "CZ", "slovakia": "SK",
@@ -921,7 +929,6 @@ def _load_sales_reps() -> tuple[list[str], dict[str, str]]:
         "usa": "US", "united states of america": "US",
         "uae": "AE", "emirates": "AE",
     })
-    _NAME_TO_ISO = {k.lower(): v for k, v in _NAME_TO_ISO.items()}
 
     try:
         import pandas as _pd
@@ -929,36 +936,53 @@ def _load_sales_reps() -> tuple[list[str], dict[str, str]]:
         if not _xlsx_path.exists():
             return ["— wybierz —"] + _fallback_names, _fallback_country
         _df = _pd.read_excel(_xlsx_path, sheet_name="Sales Reps", dtype=str).fillna("")
-        # normalise column names
         _df.columns = [c.strip().lower() for c in _df.columns]
-        _name_col    = next((c for c in _df.columns if "name"   in c), None)
-        _code_col    = next((c for c in _df.columns if "code"   in c), None)
-        _cname_col   = next((c for c in _df.columns if "country" in c and "code" not in c), None)
-        _active_col  = next((c for c in _df.columns if "active" in c), None)
+        _name_col   = next((c for c in _df.columns if "name"    in c), None)
+        _code_col   = next((c for c in _df.columns if "code"    in c), None)
+        _cname_col  = next((c for c in _df.columns if "country" in c and "code" not in c), None)
+        _active_col = next((c for c in _df.columns if "active"  in c), None)
         if _name_col is None:
             return ["— wybierz —"] + _fallback_names, _fallback_country
-        # filter active
+        # Active = YES/Y/TAK/1/TRUE only — empty cell is treated as NO
         if _active_col:
-            _df = _df[_df[_active_col].str.strip().str.upper().isin(["YES", "Y", "TAK", "1", "TRUE", ""])]
-        names = sorted([n.strip() for n in _df[_name_col].tolist() if n.strip()])
-        country_map: dict[str, str] = {}
+            _df = _df[_df[_active_col].str.strip().str.upper().isin(["YES", "Y", "TAK", "1", "TRUE"])]
+        names: list[str] = sorted([n.strip() for n in _df[_name_col].tolist() if n.strip()])
+        country_map: dict[str, list[str]] = {}
         for _, row in _df.iterrows():
             n = row[_name_col].strip()
             if not n:
                 continue
-            # 1. explicit ISO code column
-            iso = row[_code_col].strip().upper() if _code_col else ""
-            # 2. if empty, try to resolve from Country Name column
-            if not iso and _cname_col:
-                cname = row[_cname_col].strip()
-                iso = _NAME_TO_ISO.get(cname.lower(), "")
-            country_map[n] = iso
+            # parse comma-separated ISO codes
+            raw_codes = row[_code_col].strip().upper() if _code_col else ""
+            isos: list[str] = [c.strip() for c in raw_codes.split(",") if c.strip()]
+            # if still empty, resolve from Country Name (also comma-separated)
+            if not isos and _cname_col:
+                raw_cnames = row[_cname_col].strip()
+                for cname in [x.strip() for x in raw_cnames.split(",") if x.strip()]:
+                    iso = _NAME_TO_ISO.get(cname.lower(), "")
+                    if iso:
+                        isos.append(iso)
+            country_map[n] = isos
         return ["— wybierz —"] + names, country_map
     except Exception:
         return ["— wybierz —"] + _fallback_names, _fallback_country
 
 
 IBM_SALES_REPS, _SALES_REP_COUNTRY = _load_sales_reps()
+
+
+def _reps_for_country(country_code: str) -> list[str]:
+    """
+    Return names of active reps whose territory includes country_code.
+    Falls back to ALL reps (sorted, no placeholder) when no match found.
+    country_code="" → return all reps.
+    """
+    if not country_code:
+        return [r for r in IBM_SALES_REPS if r != IBM_SALES_REPS[0]]
+    cc = country_code.strip().upper()
+    matched = [n for n in IBM_SALES_REPS if n != IBM_SALES_REPS[0]
+               and cc in _SALES_REP_COUNTRY.get(n, [])]
+    return matched if matched else [r for r in IBM_SALES_REPS if r != IBM_SALES_REPS[0]]
 
 COMPETITORS_STORAGE = [
     "Pure Storage FlashArray",
@@ -2300,39 +2324,57 @@ a.pl-card:hover { color: inherit !important; }
             disabled=not loaded,
         )
         # Badge: country read from econfig CSV header
-        if loaded:
-            _econfig_cc   = (st.session_state.get("project_data") or {}).get("country_code", "")
-            _econfig_cname = _COUNTRY_NAMES_MAP.get(_econfig_cc, _econfig_cc)
-            if _econfig_cc:
-                st.markdown(
-                    f'<div style="font-size:11px;color:var(--gray-70);line-height:1.4;'
-                    f'border-left:2px solid var(--blue-60);padding:3px 8px;margin:-6px 0 10px;'
-                    f'background:#edf5ff">'
-                    f'📍 <b>Pricing country from e-config:</b> {_econfig_cname} ({_econfig_cc})</div>',
-                    unsafe_allow_html=True,
-                )
+        _econfig_cc    = (st.session_state.get("project_data") or {}).get("country_code", "") if loaded else ""
+        _econfig_cname = _COUNTRY_NAMES_MAP.get(_econfig_cc, _econfig_cc)
+        if loaded and _econfig_cc:
+            st.markdown(
+                f'<div style="font-size:11px;color:var(--gray-70);line-height:1.4;'
+                f'border-left:2px solid var(--blue-60);padding:3px 8px;margin:-6px 0 10px;'
+                f'background:#edf5ff">'
+                f'📍 <b>Pricing country from e-config:</b> {_econfig_cname} ({_econfig_cc})</div>',
+                unsafe_allow_html=True,
+            )
 
-        _rep_opts = IBM_SALES_REPS
-        _rep_idx  = (_rep_opts.index(st.session_state["seller_name"])
-                     if st.session_state["seller_name"] in _rep_opts else 0)
-        st.session_state["seller_name"] = st.selectbox(
+        # Sales Rep dropdown — filtered to reps covering the econfig country.
+        # Builds two groups: matching territory reps first, then a separator +
+        # "— other —" + remaining reps (so user can still pick anyone).
+        _matched_reps = _reps_for_country(_econfig_cc)
+        _all_reps     = [r for r in IBM_SALES_REPS if r != IBM_SALES_REPS[0]]
+        _other_reps   = [r for r in _all_reps if r not in _matched_reps]
+        if _other_reps:
+            _rep_opts = (["— wybierz —"] + _matched_reps
+                         + ["──────────────"] + _other_reps)
+        else:
+            _rep_opts = ["— wybierz —"] + _matched_reps
+        # Keep current selection valid in new option list
+        _cur_rep = st.session_state["seller_name"]
+        if _cur_rep not in _rep_opts:
+            _cur_rep = "— wybierz —"
+        _rep_idx = _rep_opts.index(_cur_rep)
+        _sel_rep = st.selectbox(
             "Sales Representative",
             options=_rep_opts,
             index=_rep_idx,
             disabled=not loaded,
             key="sel_seller_step2",
         )
-        # Badge: country assigned to the selected sales rep (from users.xlsx)
-        if loaded:
-            _sel_rep = st.session_state["seller_name"]
-            _rep_cc  = _SALES_REP_COUNTRY.get(_sel_rep, "")
-            _rep_cn  = _COUNTRY_NAMES_MAP.get(_rep_cc, _rep_cc)
-            if _rep_cc and _sel_rep != IBM_SALES_REPS[0]:
+        # Ignore separator pseudo-option
+        if _sel_rep == "──────────────":
+            _sel_rep = "— wybierz —"
+        st.session_state["seller_name"] = _sel_rep
+
+        # Badge: territory of the selected rep
+        if loaded and _sel_rep and _sel_rep != "— wybierz —":
+            _rep_isos = _SALES_REP_COUNTRY.get(_sel_rep, [])
+            if _rep_isos:
+                _rep_territory = ", ".join(
+                    f"{_COUNTRY_NAMES_MAP.get(cc, cc)} ({cc})" for cc in _rep_isos
+                )
                 st.markdown(
                     f'<div style="font-size:11px;color:var(--gray-70);line-height:1.4;'
                     f'border-left:2px solid var(--green-50);padding:3px 8px;margin:-6px 0 10px;'
                     f'background:#defbe6">'
-                    f'👤 <b>Rep territory:</b> {_rep_cn} ({_rep_cc})</div>',
+                    f'👤 <b>Territory:</b> {_rep_territory}</div>',
                     unsafe_allow_html=True,
                 )
 
