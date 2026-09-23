@@ -22,7 +22,7 @@ from app.parsers.econfig_parser import parse_project, parse_project_csv_only, sc
 from app.parsers.scale_parser import parse_scale_project
 from app.parsers.power_parser import parse_power_project
 from app.parsers.bid_parser import parse_bid_docx
-from app.generators.exec_summary import generate_exec_summary
+from app.generators.exec_summary import generate_exec_summary, _COUNTRY_NAMES as _COUNTRY_NAMES_MAP
 from app.generators.rfp_generator import generate_rfp
 from app.generators.special_bid_generator import generate_special_bid
 from app.generators.scale_exec_summary import generate_scale_exec_summary
@@ -896,23 +896,50 @@ def pad(content_fn):
 # ─────────────────────────────────────────────────────────────────────────────
 DISTRIBUTORS = ["— wybierz —", "Arrow Electronics", "Arrow ECS Baltic", "TD Synnex"]
 
-IBM_SALES_REPS = [
-    "— wybierz —",
-    "Adam Karaszewski",
-    "Artur Król",
-    "Bartosz Pizon",
-    "Daniel Kudyba",
-    "Dawid Dołowy",
-    "Dominik Dabrowski",
-    "Jacek Goździk",
-    "Józef Angelus",
-    "Łukasz Pikur",
-    "Łukasz Stolarczyk",
-    "Łukasz Winiarski",
-    "Maryia Shulhach",
-    "Mirosław Pura",
-    "Piotr Sękowski",
-]
+# ── Sales Reps — loaded from users.xlsx (editable by admins) ─────────────────
+# File: users.xlsx in the app root directory.
+# Columns: Full Name | Country Code (ISO) | Country Name | Active (YES/NO)
+# Falls back to the hardcoded list if the file is missing or unreadable.
+
+def _load_sales_reps() -> tuple[list[str], dict[str, str]]:
+    """Return (sorted_name_list_with_placeholder, {name: country_code}) from users.xlsx."""
+    _fallback_names = [
+        "Adam Karaszewski", "Artur Król", "Bartosz Pizon", "Daniel Kudyba",
+        "Dawid Dołowy", "Dominik Dabrowski", "Jacek Goździk", "Józef Angelus",
+        "Łukasz Pikur", "Łukasz Stolarczyk", "Łukasz Winiarski", "Maryia Shulhach",
+        "Mirosław Pura", "Piotr Sękowski",
+    ]
+    _fallback_country = {n: "PL" for n in _fallback_names}
+    try:
+        import pandas as _pd
+        _xlsx_path = Path(__file__).parent / "users.xlsx"
+        if not _xlsx_path.exists():
+            return ["— wybierz —"] + _fallback_names, _fallback_country
+        _df = _pd.read_excel(_xlsx_path, sheet_name="Sales Reps", dtype=str).fillna("")
+        # normalise column names
+        _df.columns = [c.strip().lower() for c in _df.columns]
+        _name_col    = next((c for c in _df.columns if "name" in c), None)
+        _code_col    = next((c for c in _df.columns if "code" in c or c == "country code (iso)"), None)
+        _active_col  = next((c for c in _df.columns if "active" in c), None)
+        if _name_col is None:
+            return ["— wybierz —"] + _fallback_names, _fallback_country
+        # filter active
+        if _active_col:
+            _df = _df[_df[_active_col].str.upper().isin(["YES", "Y", "TAK", "1", "TRUE", ""])]
+        names   = sorted([n.strip() for n in _df[_name_col].tolist() if n.strip()])
+        country_map = {}
+        if _code_col:
+            for _, row in _df.iterrows():
+                n = row[_name_col].strip()
+                c = row[_code_col].strip().upper()
+                if n:
+                    country_map[n] = c
+        return ["— wybierz —"] + names, country_map
+    except Exception:
+        return ["— wybierz —"] + _fallback_names, _fallback_country
+
+
+IBM_SALES_REPS, _SALES_REP_COUNTRY = _load_sales_reps()
 
 COMPETITORS_STORAGE = [
     "Pure Storage FlashArray",
@@ -2253,6 +2280,19 @@ a.pl-card:hover { color: inherit !important; }
             placeholder="e.g. Acme Bank S.A.",
             disabled=not loaded,
         )
+        # Badge: country read from econfig CSV header
+        if loaded:
+            _econfig_cc   = (st.session_state.get("project_data") or {}).get("country_code", "")
+            _econfig_cname = _COUNTRY_NAMES_MAP.get(_econfig_cc, _econfig_cc)
+            if _econfig_cc:
+                st.markdown(
+                    f'<div style="font-size:11px;color:var(--gray-70);line-height:1.4;'
+                    f'border-left:2px solid var(--blue-60);padding:3px 8px;margin:-6px 0 10px;'
+                    f'background:#edf5ff">'
+                    f'📍 <b>Pricing country from e-config:</b> {_econfig_cname} ({_econfig_cc})</div>',
+                    unsafe_allow_html=True,
+                )
+
         _rep_opts = IBM_SALES_REPS
         _rep_idx  = (_rep_opts.index(st.session_state["seller_name"])
                      if st.session_state["seller_name"] in _rep_opts else 0)
@@ -2263,6 +2303,19 @@ a.pl-card:hover { color: inherit !important; }
             disabled=not loaded,
             key="sel_seller_step2",
         )
+        # Badge: country assigned to the selected sales rep (from users.xlsx)
+        if loaded:
+            _sel_rep = st.session_state["seller_name"]
+            _rep_cc  = _SALES_REP_COUNTRY.get(_sel_rep, "")
+            _rep_cn  = _COUNTRY_NAMES_MAP.get(_rep_cc, _rep_cc)
+            if _rep_cc and _sel_rep != IBM_SALES_REPS[0]:
+                st.markdown(
+                    f'<div style="font-size:11px;color:var(--gray-70);line-height:1.4;'
+                    f'border-left:2px solid var(--green-50);padding:3px 8px;margin:-6px 0 10px;'
+                    f'background:#defbe6">'
+                    f'👤 <b>Rep territory:</b> {_rep_cn} ({_rep_cc})</div>',
+                    unsafe_allow_html=True,
+                )
 
     with pd2:
         _dt_keys   = [d[0] for d in DEAL_TYPES]

@@ -21,6 +21,9 @@ env/
 *.csv
 *.zip
 
+# App config files — tracked intentionally
+!users.xlsx
+
 # Input files / project data
 INPUT-FILES/
 projects/
