@@ -692,7 +692,7 @@ def _add_executive_summary_text(doc, project, model_info, client_name, T, num_sy
     support_hours = T["support_24x7"] if support_info.get("fix_time") else T["support_9x5"]
 
     # All-flash models never have HDD
-    _all_flash_models = {"FS7600", "FS9600", "FS9500", "FS7300", "FSC200"}
+    _all_flash_models = {"FS7600", "FS9600", "FS9500", "FS7300", "FSC200", "FSC300"}
     _model_short_body = model_info.get("short", "")
     _has_hdd_body = (is_hybrid
                      and project.get("hdd_drives_count", 0) > 0
@@ -864,7 +864,7 @@ def _add_config_table(doc, project, model_info, T):
     _free_slots  = _total_slots - drives_count if _total_slots > drives_count else 0
 
     # Models that never support HDD (all-flash only)
-    _all_flash_models = {"FS7600", "FS9600", "FS9500", "FS7300", "FSC200"}
+    _all_flash_models = {"FS7600", "FS9600", "FS9500", "FS7300", "FSC200", "FSC300"}
     _model_short = model_info.get("short", "")
     _has_hdd = (is_hybrid
                 and project.get("hdd_drives_count", 0) > 0
@@ -936,7 +936,7 @@ def _add_capacity_table(doc, project, T):
     _is_pl        = T.get("lang") == "pl"
 
     # All-flash model check
-    _all_flash_models = {"FS7600", "FS9600", "FS9500", "FS7300", "FSC200"}
+    _all_flash_models = {"FS7600", "FS9600", "FS9500", "FS7300", "FSC200", "FSC300"}
     _mi = get_model_info(project.get("model_code", ""))
     _has_hdd = (is_hybrid
                 and project.get("hdd_drives_count", 0) > 0

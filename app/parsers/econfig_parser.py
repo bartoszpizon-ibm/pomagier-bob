@@ -157,6 +157,8 @@ def parse_project_csv_only(csv_source) -> dict[str, Any]:
         cache_gb = 768
     elif re.match(r"5127-|5126-", _model):  # FS5600 / FS5200
         cache_gb = 256
+    elif re.match(r"5202-C3", _model):      # FSC300 (FlashSystem C300)
+        cache_gb = 256
     elif re.match(r"5202-|5147-|5076-", _model):  # FSC200
         cache_gb = 256
     elif re.match(r"4680-", _model):        # FS5045 / FS5015
@@ -340,18 +342,18 @@ def _parse_econfig_csv(source) -> dict[str, Any]:
             qty = _parse_int(qty_str)
             price = _parse_price(price_str)
 
-            # Base model: first numeric product code (e.g. 5127-A20, 5078-A40)
+            # Base model: first numeric product code (e.g. 5127-A20, 5078-A40, 5202-C30)
             # Must be in HARDWARE section; skip known non-model prefixes
             if re.match(r"^\d{4}-\w+$", product) and not result["model_code"] and section == "hardware":
                 # Exclude known support/software product prefixes AND SAN switches (8969-xxx)
-                if not re.match(r"^(5132|5076|5079|5080|5081|5203|5608|5775|8969|8999|9474|8883)-", product):
+                if not re.match(r"^(5132|5076|5079|5080|5081|5203|5293|5608|5775|8969|8999|9474|8883)-", product):
                     result["model_code"] = product
 
             # Support product — various prefixes depending on model family:
             # 5132-xxx (FS5x00), 5076-xxx (FS7600), 5079-xxx (FS9600), 5080-xxx, 5081-xxx
-            # 5203-xxx (FSC200 Expert Care), 4690-xxx (FS5045/FS5015 Expert Care)
+            # 5203-xxx (FSC200 Expert Care), 5293-xxx (FSC300 Expert Care), 4690-xxx (FS5045/FS5015 Expert Care)
             # 8999-xxx / 9474-xxx / 8883-xxx = SAN b-type Expert Care
-            if re.match(r"^(5132|5076|5079|5080|5081|5203|4690|8999|9474|8883)-", product) and section == "hardware":
+            if re.match(r"^(5132|5076|5079|5080|5081|5203|5293|4690|8999|9474|8883)-", product) and section == "hardware":
                 result["list_price_support"] = price
                 continue
 
@@ -402,17 +404,26 @@ def _parse_econfig_csv(source) -> dict[str, Any]:
                 if product in ("ACSR", "ACSS"):
                     result["cable_qty"] += qty
 
-                # Drive type & count — NVMe FCM drives AND SAS Flash Drives (FS5045/FS5015)
+                # Drive type & count — NVMe FCM drives, SAS Flash Drives, and C300 capacity bundles
                 # e.g. "6.6 TB FlashCore Module 5" / "15.36TB 12 Gb SAS 2.5 Inch Flash Drive"
-                # Note: [\w\s.] includes dots (for "2.5 Inch" in SAS drive descriptions)
-                _dm = re.search(
-                    r"([\d.]+\s*TB\s+Flash\w+\s+Module\s+\d+|[\d.]+\s*TB[\w\s.]*?Flash\s+Drive)",
-                    desc, re.IGNORECASE
-                )
-                if _dm and not result.get("drive_type"):
-                    result["drive_type"] = _dm.group(1).strip()
-                    result["drive_feature"] = product
-                    result["drives_count"] = qty
+                # C300 capacity features: ADU1 = 422 TB Base (8x 52.8TB FCM5), ADUA = 211 TB Incr (4x 52.8TB FCM5)
+                if product == "ADU1":
+                    result["drive_type"] = "52.8 TB FlashCore Module 5"
+                    result["drive_feature"] = "ADU1"
+                    result["drives_count"] = result.get("drives_count", 0) + (8 * qty)
+                elif product == "ADUA":
+                    if not result.get("drive_type"):
+                        result["drive_type"] = "52.8 TB FlashCore Module 5"
+                    result["drives_count"] = result.get("drives_count", 0) + (4 * qty)
+                else:
+                    _dm = re.search(
+                        r"([\d.]+\s*TB\s+Flash\w+\s+Module\s+\d+|[\d.]+\s*TB[\w\s.]*?Flash\s+Drive)",
+                        desc, re.IGNORECASE
+                    )
+                    if _dm and not result.get("drive_type"):
+                        result["drive_type"] = _dm.group(1).strip()
+                        result["drive_feature"] = product
+                        result["drives_count"] = qty
 
                 # HDD drives — NL-SAS / SAS / NL HDD feature codes (e.g. AL4E, AL4G…)
                 # Description pattern: "20TB 7,200 rpm 12 Gb SAS NL 3.5 Inch HDD"

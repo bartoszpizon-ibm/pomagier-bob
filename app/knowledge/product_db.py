@@ -201,6 +201,7 @@ FEATURE_LABELS: dict[str, str] = {
     "1754": "DS8000 Exp Frame",
     # ── Connectivity ─────────────────────────────────────────────────────────
     "ALB9": "32 Gb FC Adapter Pair (4-port)",
+    "AHBL": "32 Gb FC Adapter Pair (4-port)",
     "ALBB": "32 Gb FC Adapter Pair (2-port)",
     "ALB7": "16 Gb FC Adapter Pair (4-port)",
     "ALBG": "16 Gb FC Adapter Pair (4-port) — FS5045/FS5015",
@@ -208,6 +209,9 @@ FEATURE_LABELS: dict[str, str] = {
     "ACSR": "5 m OM3 Fiber Cable (LC)",
     "ACSS": "25 m OM3 Fiber Cable (LC)",
     "ACUB": "1.5 m 12 Gb SAS Cable (mSAS HD)",
+    # ── Capacity feature codes ────────────────────────────────────────────────
+    "ADU1": "422 TB Base (8 × 52.8 TB FCM5)",
+    "ADUA": "211 TB Increment for 422 TB Base (4 × 52.8 TB FCM5)",
     # ── Encryption & security ─────────────────────────────────────────────────
     "ACEG": "Encryption Activated (Software)",
     "ALEC": "Encryption USB Drive Pack",
@@ -320,6 +324,10 @@ _DOCS: dict[str, dict[str, str]] = {
     "FSC200": {
         "docs_url":         "https://www.ibm.com/docs/en/flashsystem-c200",
         "sales_manual_url": "https://www.ibm.com/docs/en/announcements/family-512701-storage-flashsystem-c200",
+    },
+    "FSC300": {
+        "docs_url":         "https://www.ibm.com/docs/en/flashsystem-5x00",
+        "sales_manual_url": "https://www.ibm.com/docs/en/announcements/family-520202-flashsystem-c300",
     },
     "DS8910F": {
         "docs_url":         "https://www.ibm.com/docs/en/ds8900",
@@ -797,6 +805,36 @@ MODEL_DB: dict[str, dict] = {
             "Wydajność all-flash NVMe",
             "Zintegrowany Spectrum Virtualize",
             "Zaprojektowany z myślą o obciążeniach cloud-native",
+        ],
+    },
+    # ── FlashSystem C300 ────────────────────────────────────────────────────────
+    "5202-C30": {
+        "name": "IBM Storage FlashSystem C300",
+        "short": "FSC300",
+        "family": "FlashSystem",
+        "form_factor": "1U",
+        "total_drive_slots": 12,
+        "image": "IBM-FS5000-FS.png",
+        "description": (
+            "IBM Storage FlashSystem C300 is a high-density NVMe all-flash storage system "
+            "powered by FlashCore Module 5 (FCM5) technology with hardware-accelerated "
+            "compression, encryption, and in-line ransomware threat detection."
+        ),
+        "highlights": [
+            "1U dual-controller enclosure with up to 12 × NVMe FlashCore Module 5 drives",
+            "Hardware-accelerated inline data compression and FIPS 140-3 Level 1 encryption",
+            "Inline ransomware threat detection (FlashCore Module 5) with <1-minute detection SLA",
+            "Distributed RAID (DRAID 6) for rapid rebuild times and high data availability",
+            "Fibre Channel (32 Gb/s) and NVMe-oF enterprise host connectivity",
+            "FlashSystem Grid architecture supporting seamless scale-out cluster management",
+        ],
+        "highlights_pl": [
+            "Kompaktowa obudowa 1U z redundantnymi kontrolerami i obsługą do 12 dysków NVMe FlashCore Module 5",
+            "Sprzętowa kompresja w locie i szyfrowanie FIPS 140-3 Level 1 bez utraty wydajności",
+            "Sprzętowe wykrywanie zagrożeń ransomware w czasie rzeczywistym (<1 min) dzięki modułom FCM5",
+            "Distributed RAID (DRAID 6) z błyskawiczną odbudową po awarii dysku",
+            "Łączność Fibre Channel (32 Gb/s) oraz wsparcie dla NVMe-oF",
+            "Architektura FlashSystem Grid z możliwością bezprzerwowej rozbudowy",
         ],
     },
     # ── FlashSystem 7300 ───────────────────────────────────────────────────────
