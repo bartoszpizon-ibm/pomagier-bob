@@ -36,6 +36,9 @@ IMAGES_DIR = ASSETS_DIR / "images"
 # compression/dedup/ransomware-detection, 16 Gb FC (ALBG), SAS internal bus
 _SAS_MODELS: frozenset[str] = frozenset({"FS5045", "FS5015"})
 
+# All-NVMe / FlashCore Module models — never have HDD tier
+_ALL_FLASH_MODELS: frozenset[str] = frozenset({"FS7600", "FS9600", "FS9500", "FS7300", "C200", "C300"})
+
 # ISO 3166-1 alpha-2 → English country name (European + common IBM markets)
 _COUNTRY_NAMES: dict[str, str] = {
     "AT": "Austria",        "BE": "Belgium",        "BG": "Bulgaria",
@@ -692,11 +695,10 @@ def _add_executive_summary_text(doc, project, model_info, client_name, T, num_sy
     support_hours = T["support_24x7"] if support_info.get("fix_time") else T["support_9x5"]
 
     # All-flash models never have HDD
-    _all_flash_models = {"FS7600", "FS9600", "FS9500", "FS7300", "C200", "C300"}
     _model_short_body = model_info.get("short", "")
     _has_hdd_body = (is_hybrid
                      and project.get("hdd_drives_count", 0) > 0
-                     and _model_short_body not in _all_flash_models)
+                     and _model_short_body not in _ALL_FLASH_MODELS)
 
     # For hybrid configs with actual HDD: override the body to describe both tiers
     if _has_hdd_body:
@@ -864,11 +866,10 @@ def _add_config_table(doc, project, model_info, T):
     _free_slots  = _total_slots - drives_count if _total_slots > drives_count else 0
 
     # Models that never support HDD (all-flash only)
-    _all_flash_models = {"FS7600", "FS9600", "FS9500", "FS7300", "C200", "C300"}
     _model_short = model_info.get("short", "")
     _has_hdd = (is_hybrid
                 and project.get("hdd_drives_count", 0) > 0
-                and _model_short not in _all_flash_models)
+                and _model_short not in _ALL_FLASH_MODELS)
 
     rows = [
         (T["cfg_model"],      f"{model_info.get('name', '')} ({model_code})"),
@@ -936,11 +937,10 @@ def _add_capacity_table(doc, project, T):
     _is_pl        = T.get("lang") == "pl"
 
     # All-flash model check
-    _all_flash_models = {"FS7600", "FS9600", "FS9500", "FS7300", "C200", "C300"}
     _mi = get_model_info(project.get("model_code", ""))
     _has_hdd = (is_hybrid
                 and project.get("hdd_drives_count", 0) > 0
-                and _mi.get("short", "") not in _all_flash_models)
+                and _mi.get("short", "") not in _ALL_FLASH_MODELS)
 
     # Labels differ for hybrid: "Full Raw Space (SSD+HDD)" etc.
     _raw_lbl = ("Łączna poj. raw (SSD+HDD)" if _is_pl else "Full Raw Space (SSD+HDD)") if _has_hdd else T["cap_raw"]

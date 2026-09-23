@@ -1529,9 +1529,11 @@ def get_model_info(model_code: str) -> dict:
         "short": model_code,
         "family": "IBM Storage",
         "form_factor": "N/A",
-        "image": None,
+        "total_drive_slots": 0,
+        "image": "",
         "description": "IBM enterprise storage solution.",
         "highlights": [],
+        "highlights_pl": [],
     })
 
 def get_support_info(feature_code: str) -> dict | None:

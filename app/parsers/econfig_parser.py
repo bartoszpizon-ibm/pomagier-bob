@@ -93,9 +93,10 @@ def parse_project(
         "4662-92F": 5,
     }
     _MODEL_RU = {
-        "5127": 1,   # FS5600 control enclosure
-        "5078": 2,   # FS7600 control enclosure
-        "5015": 2,   # FS9600 control enclosure
+        "5127": 1,   # FS5600 / FS5200 control enclosure (1U)
+        "5078": 2,   # FS9600 / FS9500 control enclosure (2U)
+        "5075": 2,   # FS7600 / FS7300 control enclosure (2U)
+        "4680": 2,   # FS5045 / FS5015 control enclosure (2U)
     }
     if merged.get("is_hybrid"):
         _model_prefix = (merged.get("model_code") or "")[:4]
