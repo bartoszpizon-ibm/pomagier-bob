@@ -326,7 +326,7 @@ _DOCS: dict[str, dict[str, str]] = {
         "sales_manual_url": "https://www.ibm.com/docs/en/announcements/family-512701-storage-flashsystem-c200",
     },
     "C300": {
-        "docs_url":         "https://www.ibm.com/docs/en/flashsystem-5x00",
+        "docs_url":         "https://www.ibm.com/docs/en/flashsystem-cx00",
         "sales_manual_url": "https://www.ibm.com/docs/en/announcements/family-520202-flashsystem-c300",
     },
     "DS8910F": {
