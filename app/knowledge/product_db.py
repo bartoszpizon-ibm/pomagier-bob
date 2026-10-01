@@ -92,6 +92,16 @@ SUPPORT_CODES: dict[str, dict] = {
         "fix_time_hours": "4 hours on-site",
         "description": "24×7 support with 4h on-site fix-time SLA and dedicated Technical Account Manager.",
     },
+    # ALL5 — Expert Care Premium 5Y feature code for FS7600/7300
+    "ALL5": {
+        "name": "Expert Care Premium 5 Year",
+        "level": "Premium",
+        "years": 5,
+        "coverage": "24×7",
+        "fix_time": True,
+        "fix_time_hours": "4 hours on-site",
+        "description": "24×7 support with 4h on-site fix-time SLA and dedicated Technical Account Manager.",
+    },
     # Fallback for Advanced 5Y
     "EC_ADVANCED_5Y": {
         "name": "Expert Care Advanced 5 Year",

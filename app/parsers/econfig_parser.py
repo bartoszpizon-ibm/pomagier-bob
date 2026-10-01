@@ -364,8 +364,8 @@ def _parse_econfig_csv(source) -> dict[str, Any]:
                 feature = {"code": product, "description": desc, "qty": qty, "list_price": price}
                 result["features"].append(feature)
 
-                # Support feature codes — ALK* and ALC* (e.g. ALCN = Advanced 24hr)
-                if product.startswith("ALK") or product.startswith("ALC"):
+                # Support feature codes — ALK*, ALC*, ALL* (e.g. ALCN = Advanced 24hr, ALL5 = Premium 5Y)
+                if product.startswith("ALK") or product.startswith("ALC") or product.startswith("ALL"):
                     result["support_codes"].append(product)
 
                 # FC adapter → count ports
