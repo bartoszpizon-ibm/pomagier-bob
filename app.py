@@ -984,6 +984,15 @@ def _reps_for_country(country_code: str) -> list[str]:
                and cc in _SALES_REP_COUNTRY.get(n, [])]
     return matched if matched else [r for r in IBM_SALES_REPS if r != IBM_SALES_REPS[0]]
 
+
+def _rep_label(name: str) -> str:
+    """Return display label for a sales rep: 'Full Name (ISO)' or 'Full Name' if no ISO."""
+    isos = _SALES_REP_COUNTRY.get(name, [])
+    if isos:
+        return f"{name} ({', '.join(isos)})"
+    return name
+
+
 COMPETITORS_STORAGE = [
     "Pure Storage FlashArray",
     "Dell EMC PowerStore",
@@ -2357,6 +2366,7 @@ a.pl-card:hover { color: inherit !important; }
             index=_rep_idx,
             disabled=not loaded,
             key="sel_seller_step2",
+            format_func=_rep_label,
         )
         # Ignore separator pseudo-option
         if _sel_rep == "──────────────":
@@ -4047,6 +4057,7 @@ a.pl-card:hover { color: inherit !important; }
                 disabled=not loaded,
                 key="sel_salesrep",
                 help="Auto-populated from Step 2 — can be changed independently",
+                format_func=_rep_label,
             )
 
             st.session_state["bid_reseller"] = st.text_input(
